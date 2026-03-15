@@ -2226,6 +2226,7 @@ const DecayTooltip = ({ active, payload, label }) => {
   const pron   = find("Pronóstico");
   const ciHi   = find("CI Superior");
   const ciLo   = find("CI Inferior");
+  const popVal = find("Popularity")?.value ?? null;
   const realVal = real?.value ?? null;
   const baseVal = base?.value ?? pron?.value ?? null;
   const isForecast = realVal == null && pron?.value != null;
@@ -2254,6 +2255,12 @@ const DecayTooltip = ({ active, payload, label }) => {
           <span className={`font-bold ${lift >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
             {lift >= 0 ? "+" : ""}{lift.toFixed(1)}%
           </span>
+        </div>
+      )}
+      {popVal != null && (
+        <div className="flex items-center justify-between gap-5 mb-1.5 pt-1.5 border-t border-slate-800">
+          <span className="text-amber-400 font-medium">★ Popularity</span>
+          <span className="text-amber-300 font-bold tabular-nums">{popVal}/100</span>
         </div>
       )}
       {ciHi?.value != null && ciLo?.value != null && (
@@ -3026,24 +3033,26 @@ const DecayTab = ({ track, catalog }) => {
 
   const allChartData = useMemo(()=>{
     if (!withForecast.length) return [];
+    const popLookup = track.popMetrics?.lookup ?? {};
     const base = withForecast.map((d,i)=>({
       label:d.label,
       "Streams Reales": d.isForecast ? null : d.streams,
       "Baseline Orgánico": d.isForecast ? null : d.baseline,
       "Pronóstico": (d.isForecast || i===lastActualIdx) ? d.baseline : null,
       "CI Superior":d.ci_hi, "CI Inferior":d.ci_lo,
+      "Popularity": (!d.isForecast && d.date && popLookup[d.date] !== undefined) ? popLookup[d.date] : null,
     }));
     if (viewMode==="weekly") {
       const weeks=[];
       for(let i=0;i<base.length;i+=7){
         const chunk=base.slice(i,i+7);
         const agg=k=>{ const vals=chunk.map(d=>d[k]).filter(v=>v!=null); return vals.length?Math.round(vals.reduce((s,v)=>s+v,0)/vals.length):null; };
-        weeks.push({label:chunk[0]?.label,"Streams Reales":agg("Streams Reales"),"Baseline Orgánico":agg("Baseline Orgánico"),"Pronóstico":agg("Pronóstico"),"CI Superior":agg("CI Superior"),"CI Inferior":agg("CI Inferior")});
+        weeks.push({label:chunk[0]?.label,"Streams Reales":agg("Streams Reales"),"Baseline Orgánico":agg("Baseline Orgánico"),"Pronóstico":agg("Pronóstico"),"CI Superior":agg("CI Superior"),"CI Inferior":agg("CI Inferior"),"Popularity":agg("Popularity")});
       }
       return weeks;
     }
     return base;
-  },[withForecast,viewMode,lastActualIdx]);
+  },[withForecast,viewMode,lastActualIdx,track]);
 
   const totalLen = allChartData.length;
   const effectiveWindow = windowSize ?? totalLen;
@@ -3221,7 +3230,8 @@ const DecayTab = ({ track, catalog }) => {
           <ComposedChart data={chartData}>
             <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
             <XAxis dataKey="label" tick={{fontSize:9,fill:"#64748b"}} axisLine={false} tickLine={false} interval={viewMode==="daily"?Math.floor(chartData.length/8):1} />
-            <YAxis tickFormatter={fmt.k} tick={{fontSize:9,fill:"#64748b"}} axisLine={false} tickLine={false} width={48} />
+            <YAxis yAxisId="streams" tickFormatter={fmt.k} tick={{fontSize:9,fill:"#64748b"}} axisLine={false} tickLine={false} width={48} />
+            <YAxis yAxisId="pop" orientation="right" domain={[0,100]} hide={!pop} tick={{fontSize:9,fill:"#f59e0b"}} axisLine={false} tickLine={false} width={28} tickFormatter={v=>`${v}`} />
             <Tooltip content={<DecayTooltip />} />
             <Legend wrapperStyle={{fontSize:"11px",paddingTop:"8px"}} />
             {/* Forecast zone shading */}
@@ -3229,12 +3239,13 @@ const DecayTab = ({ track, catalog }) => {
               <ReferenceArea x1={forecastStartLabel} x2={forecastEndLabel} fill="#a855f7" fillOpacity={0.05} stroke="none" />
             )}
             {dmStart!=null&&<>
-              <Line dataKey="CI Superior" stroke="#a855f7" strokeWidth={1} dot={false} strokeDasharray="2 4" strokeOpacity={0.35} legendType="none" />
-              <Line dataKey="CI Inferior" stroke="#a855f7" strokeWidth={1} dot={false} strokeDasharray="2 4" strokeOpacity={0.35} legendType="none" />
-              <Line dataKey="Baseline Orgánico" stroke="#a855f7" strokeWidth={2} dot={false} strokeDasharray="7 3" />
-              <Line dataKey="Pronóstico" stroke="#a855f7" strokeWidth={1.5} dot={false} strokeDasharray="3 3" strokeOpacity={0.55} connectNulls={false} />
+              <Line yAxisId="streams" dataKey="CI Superior" stroke="#a855f7" strokeWidth={1} dot={false} strokeDasharray="2 4" strokeOpacity={0.35} legendType="none" />
+              <Line yAxisId="streams" dataKey="CI Inferior" stroke="#a855f7" strokeWidth={1} dot={false} strokeDasharray="2 4" strokeOpacity={0.35} legendType="none" />
+              <Line yAxisId="streams" dataKey="Baseline Orgánico" stroke="#a855f7" strokeWidth={2} dot={false} strokeDasharray="7 3" />
+              <Line yAxisId="streams" dataKey="Pronóstico" stroke="#a855f7" strokeWidth={1.5} dot={false} strokeDasharray="3 3" strokeOpacity={0.55} connectNulls={false} />
             </>}
-            <Line dataKey="Streams Reales" stroke="#10b981" strokeWidth={2.5} dot={false} connectNulls={false} activeDot={{r:4,fill:"#10b981",stroke:"#0f172a",strokeWidth:2}} />
+            <Line yAxisId="streams" dataKey="Streams Reales" stroke="#10b981" strokeWidth={2.5} dot={false} connectNulls={false} activeDot={{r:4,fill:"#10b981",stroke:"#0f172a",strokeWidth:2}} />
+            <Line yAxisId="pop" dataKey="Popularity" stroke="#f59e0b" strokeWidth={1.5} dot={false} connectNulls={true} strokeOpacity={pop ? 0.9 : 0} legendType={pop ? "line" : "none"} />
             {dmLabel&&<ReferenceLine x={dmLabel} stroke="#a855f7" strokeWidth={1.5} strokeDasharray="4 4"
               label={{value:"DM ▶",position:"top",fontSize:10,fill:"#a855f7"}} />}
             {lastActualLabel&&<ReferenceLine x={lastActualLabel} stroke="#475569" strokeWidth={1} strokeDasharray="3 3"
