@@ -3231,7 +3231,7 @@ const DecayTab = ({ track, catalog }) => {
             <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
             <XAxis dataKey="label" tick={{fontSize:9,fill:"#64748b"}} axisLine={false} tickLine={false} interval={viewMode==="daily"?Math.floor(chartData.length/8):1} />
             <YAxis yAxisId="streams" tickFormatter={fmt.k} tick={{fontSize:9,fill:"#64748b"}} axisLine={false} tickLine={false} width={48} />
-            <YAxis yAxisId="pop" orientation="right" domain={[0,100]} hide={!pop} tick={{fontSize:9,fill:"#f59e0b"}} axisLine={false} tickLine={false} width={28} tickFormatter={v=>`${v}`} />
+            <YAxis yAxisId="pop" orientation="right" domain={[0,100]} tick={pop?{fontSize:9,fill:"#f59e0b"}:false} axisLine={false} tickLine={false} width={pop?28:4} tickFormatter={v=>`${v}`} />
             <Tooltip content={<DecayTooltip />} />
             <Legend wrapperStyle={{fontSize:"11px",paddingTop:"8px"}} />
             {/* Forecast zone shading */}
