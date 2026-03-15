@@ -12,6 +12,44 @@ import {
 } from "lucide-react";
 
 // ════════════════════════════════════════════════════════════════
+//  ERROR BOUNDARY
+// ════════════════════════════════════════════════════════════════
+class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { error: null, info: null }; }
+  static getDerivedStateFromError(err) { return { error: err }; }
+  componentDidCatch(err, info) {
+    console.error("MDI Error:", err, info);
+    this.setState({ info });
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{background:"#dc2626",minHeight:"100%",padding:"24px",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
+          <div style={{background:"#fff",borderRadius:"12px",padding:"20px",maxWidth:"600px",width:"100%",color:"#111"}}>
+            <p style={{fontWeight:"bold",fontSize:"14px",marginBottom:"8px",color:"#dc2626"}}>⚠️ CRASH EN DECAYTAB</p>
+            <p style={{fontSize:"12px",fontFamily:"monospace",marginBottom:"12px",wordBreak:"break-all",background:"#f5f5f5",padding:"8px",borderRadius:"6px"}}>
+              {this.state.error?.message || String(this.state.error)}
+            </p>
+            {this.state.info?.componentStack && (
+              <pre style={{fontSize:"10px",color:"#555",maxHeight:"150px",overflow:"auto",background:"#f5f5f5",padding:"8px",borderRadius:"6px",whiteSpace:"pre-wrap",wordBreak:"break-all",marginBottom:"12px"}}>
+                {this.state.info.componentStack.trim().split('\n').slice(0,6).join('\n')}
+              </pre>
+            )}
+            <button
+              onClick={() => this.setState({ error: null, info: null })}
+              style={{background:"#dc2626",color:"#fff",border:"none",borderRadius:"8px",padding:"8px 16px",fontSize:"12px",cursor:"pointer"}}
+            >
+              Reintentar
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
 //  CONFIG
 // ════════════════════════════════════════════════════════════════
 const CFG = {
@@ -2981,19 +3019,19 @@ const DecayTab = ({ track, catalog }) => {
   const [showContext, setShowContext] = useState(false);
   const { metrics, history, dmStart } = track;
 
-  const withForecast = useMemo(()=>appendForecast(history, dmStart),[history,dmStart]);
-  const lastActualLabel = history.at(-1)?.label;
-  const lastActualIdx = history.length - 1;
+  // All hooks must be called unconditionally (Rules of Hooks)
+  const withForecast = useMemo(()=> history?.length ? appendForecast(history, dmStart) : [], [history,dmStart]);
+  const lastActualLabel = history?.at(-1)?.label;
+  const lastActualIdx = (history?.length ?? 1) - 1;
 
-  const popLookup = track.popMetrics?.lookup ?? {};
   const allChartData = useMemo(()=>{
+    if (!withForecast.length) return [];
     const base = withForecast.map((d,i)=>({
       label:d.label,
       "Streams Reales": d.isForecast ? null : d.streams,
       "Baseline Orgánico": d.isForecast ? null : d.baseline,
       "Pronóstico": (d.isForecast || i===lastActualIdx) ? d.baseline : null,
       "CI Superior":d.ci_hi, "CI Inferior":d.ci_lo,
-      "Popularity": (!d.isForecast && d.date && popLookup[d.date] !== undefined) ? popLookup[d.date] : null,
     }));
     if (viewMode==="weekly") {
       const weeks=[];
@@ -3015,6 +3053,7 @@ const DecayTab = ({ track, catalog }) => {
 
   // ── Dynamic insight computation ───────────────────────────────
   const insight = useMemo(() => {
+    if (!metrics) return { score:0, scoreColor:"slate", scoreLabel:"N/A", signalColor:"slate", signalTitle:"", signalText:"", actions:[], vsStreams:0, vsK:0, vsLift:null, avgLift:0 };
     const m = metrics ?? {};
     const dm = track.dm ?? {};
     const src = track.sources ?? {};
@@ -3099,6 +3138,15 @@ const DecayTab = ({ track, catalog }) => {
     return { score, scoreColor, scoreLabel, signalColor, signalTitle, signalText, actions, vsStreams, vsK, vsLift, avgLift };
   }, [track, catalog, metrics]);
 
+  // Guard AFTER all hooks — safe to return early now
+  if (!history?.length || !metrics) {
+    return (
+      <div className="flex items-center justify-center h-full text-slate-500 text-sm">
+        Sin datos disponibles para este track
+      </div>
+    );
+  }
+
   const kC=k=>k>0.03?"rose":k>0.015?"amber":"emerald";
   const hlC=h=>h<8?"rose":h>30?"emerald":"amber";
   const popC=p=>p>=60?"emerald":p>=35?"amber":"rose";
@@ -3173,8 +3221,7 @@ const DecayTab = ({ track, catalog }) => {
           <ComposedChart data={chartData}>
             <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
             <XAxis dataKey="label" tick={{fontSize:9,fill:"#64748b"}} axisLine={false} tickLine={false} interval={viewMode==="daily"?Math.floor(chartData.length/8):1} />
-            <YAxis yAxisId="streams" tickFormatter={fmt.k} tick={{fontSize:9,fill:"#64748b"}} axisLine={false} tickLine={false} width={48} />
-            {pop&&<YAxis yAxisId="pop" orientation="right" domain={[0,100]} tick={{fontSize:9,fill:"#f59e0b"}} axisLine={false} tickLine={false} width={28} tickFormatter={v=>`${v}`} />}
+            <YAxis tickFormatter={fmt.k} tick={{fontSize:9,fill:"#64748b"}} axisLine={false} tickLine={false} width={48} />
             <Tooltip content={<DecayTooltip />} />
             <Legend wrapperStyle={{fontSize:"11px",paddingTop:"8px"}} />
             {/* Forecast zone shading */}
@@ -3182,13 +3229,12 @@ const DecayTab = ({ track, catalog }) => {
               <ReferenceArea x1={forecastStartLabel} x2={forecastEndLabel} fill="#a855f7" fillOpacity={0.05} stroke="none" />
             )}
             {dmStart!=null&&<>
-              <Line yAxisId="streams" dataKey="CI Superior" stroke="#a855f7" strokeWidth={1} dot={false} strokeDasharray="2 4" strokeOpacity={0.35} legendType="none" />
-              <Line yAxisId="streams" dataKey="CI Inferior" stroke="#a855f7" strokeWidth={1} dot={false} strokeDasharray="2 4" strokeOpacity={0.35} legendType="none" />
-              <Line yAxisId="streams" dataKey="Baseline Orgánico" stroke="#a855f7" strokeWidth={2} dot={false} strokeDasharray="7 3" />
-              <Line yAxisId="streams" dataKey="Pronóstico" stroke="#a855f7" strokeWidth={1.5} dot={false} strokeDasharray="3 3" strokeOpacity={0.55} connectNulls={false} />
+              <Line dataKey="CI Superior" stroke="#a855f7" strokeWidth={1} dot={false} strokeDasharray="2 4" strokeOpacity={0.35} legendType="none" />
+              <Line dataKey="CI Inferior" stroke="#a855f7" strokeWidth={1} dot={false} strokeDasharray="2 4" strokeOpacity={0.35} legendType="none" />
+              <Line dataKey="Baseline Orgánico" stroke="#a855f7" strokeWidth={2} dot={false} strokeDasharray="7 3" />
+              <Line dataKey="Pronóstico" stroke="#a855f7" strokeWidth={1.5} dot={false} strokeDasharray="3 3" strokeOpacity={0.55} connectNulls={false} />
             </>}
-            <Line yAxisId="streams" dataKey="Streams Reales" stroke="#10b981" strokeWidth={2.5} dot={false} connectNulls={false} activeDot={{r:4,fill:"#10b981",stroke:"#0f172a",strokeWidth:2}} />
-            {pop&&<Line yAxisId="pop" dataKey="Popularity" stroke="#f59e0b" strokeWidth={2} dot={{r:3,fill:"#f59e0b",stroke:"#0f172a",strokeWidth:1.5}} connectNulls={true} strokeOpacity={0.85} />}
+            <Line dataKey="Streams Reales" stroke="#10b981" strokeWidth={2.5} dot={false} connectNulls={false} activeDot={{r:4,fill:"#10b981",stroke:"#0f172a",strokeWidth:2}} />
             {dmLabel&&<ReferenceLine x={dmLabel} stroke="#a855f7" strokeWidth={1.5} strokeDasharray="4 4"
               label={{value:"DM ▶",position:"top",fontSize:10,fill:"#a855f7"}} />}
             {lastActualLabel&&<ReferenceLine x={lastActualLabel} stroke="#475569" strokeWidth={1} strokeDasharray="3 3"
@@ -4092,8 +4138,12 @@ const ChartmetricModal = ({ onClose, onSync }) => {
 //  ROOT APP
 // ════════════════════════════════════════════════════════════════
 export default function MusicDecayIntelligence() {
-  const [selectedId, setSelectedId] = useState("track-002");
-  const [tab, setTab] = useState("decay");
+  const [selectedId, setSelectedId] = useState(() => {
+    // Pick first track that has real data (avoids empty placeholder tracks)
+    const first = CATALOG.find(t => t.metrics != null && t.name);
+    return first?.id ?? null;
+  });
+  const [tab, setTab] = useState("dashboard");
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
   const [showCmModal, setShowCmModal]   = useState(false);
@@ -4175,12 +4225,14 @@ export default function MusicDecayIntelligence() {
           </div>
         </div>
         <div className="flex-1 overflow-y-auto">
-          {tab==="dashboard"&&<DashboardTab tracks={catalog} onSelectTrack={handleSelect} />}
-          {tab==="manager"&&<DMManagerTab catalog={catalog} onUpdateStatus={handleUpdateStatus} />}
-          {tab==="decay"&&track&&<DecayTab track={track} catalog={catalog} />}
-          {tab==="audit"&&track&&<DMAuditTab track={track} />}
-          {tab==="simulator"&&track&&<ROISimulatorTab track={track} />}
-          {tab==="performance"&&<PerformanceTab tracks={catalog} />}
+          <ErrorBoundary key={tab + selectedId}>
+            {tab==="dashboard"&&<DashboardTab tracks={catalog} onSelectTrack={handleSelect} />}
+            {tab==="manager"&&<DMManagerTab catalog={catalog} onUpdateStatus={handleUpdateStatus} />}
+            {tab==="decay"&&track&&<DecayTab track={track} catalog={catalog} />}
+            {tab==="audit"&&track&&<DMAuditTab track={track} />}
+            {tab==="simulator"&&track&&<ROISimulatorTab track={track} />}
+            {tab==="performance"&&<PerformanceTab tracks={catalog} />}
+          </ErrorBoundary>
         </div>
       </div>
       {showCmModal&&(
