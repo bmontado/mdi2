@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
 import {
-  ComposedChart, AreaChart, Area, BarChart, Bar,
+  ComposedChart, LineChart, AreaChart, Area, BarChart, Bar,
   ScatterChart, Scatter, ZAxis,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   ResponsiveContainer, ReferenceLine, ReferenceArea, Line, Cell, LabelList
@@ -3230,28 +3230,49 @@ const DecayTab = ({ track, catalog }) => {
           <ComposedChart data={chartData}>
             <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
             <XAxis dataKey="label" tick={{fontSize:9,fill:"#64748b"}} axisLine={false} tickLine={false} interval={viewMode==="daily"?Math.floor(chartData.length/8):1} />
-            <YAxis yAxisId="streams" tickFormatter={fmt.k} tick={{fontSize:9,fill:"#64748b"}} axisLine={false} tickLine={false} width={48} />
-            <YAxis yAxisId="pop" orientation="right" domain={[0,100]} tick={pop?{fontSize:9,fill:"#f59e0b"}:false} axisLine={false} tickLine={false} width={pop?28:4} tickFormatter={v=>`${v}`} />
+            <YAxis tickFormatter={fmt.k} tick={{fontSize:9,fill:"#64748b"}} axisLine={false} tickLine={false} width={48} />
             <Tooltip content={<DecayTooltip />} />
             <Legend wrapperStyle={{fontSize:"11px",paddingTop:"8px"}} />
-            {/* Forecast zone shading */}
             {forecastStartLabel&&forecastEndLabel&&(
               <ReferenceArea x1={forecastStartLabel} x2={forecastEndLabel} fill="#a855f7" fillOpacity={0.05} stroke="none" />
             )}
             {dmStart!=null&&<>
-              <Line yAxisId="streams" dataKey="CI Superior" stroke="#a855f7" strokeWidth={1} dot={false} strokeDasharray="2 4" strokeOpacity={0.35} legendType="none" />
-              <Line yAxisId="streams" dataKey="CI Inferior" stroke="#a855f7" strokeWidth={1} dot={false} strokeDasharray="2 4" strokeOpacity={0.35} legendType="none" />
-              <Line yAxisId="streams" dataKey="Baseline Orgánico" stroke="#a855f7" strokeWidth={2} dot={false} strokeDasharray="7 3" />
-              <Line yAxisId="streams" dataKey="Pronóstico" stroke="#a855f7" strokeWidth={1.5} dot={false} strokeDasharray="3 3" strokeOpacity={0.55} connectNulls={false} />
+              <Line dataKey="CI Superior" stroke="#a855f7" strokeWidth={1} dot={false} strokeDasharray="2 4" strokeOpacity={0.35} legendType="none" />
+              <Line dataKey="CI Inferior" stroke="#a855f7" strokeWidth={1} dot={false} strokeDasharray="2 4" strokeOpacity={0.35} legendType="none" />
+              <Line dataKey="Baseline Orgánico" stroke="#a855f7" strokeWidth={2} dot={false} strokeDasharray="7 3" />
+              <Line dataKey="Pronóstico" stroke="#a855f7" strokeWidth={1.5} dot={false} strokeDasharray="3 3" strokeOpacity={0.55} connectNulls={false} />
             </>}
-            <Line yAxisId="streams" dataKey="Streams Reales" stroke="#10b981" strokeWidth={2.5} dot={false} connectNulls={false} activeDot={{r:4,fill:"#10b981",stroke:"#0f172a",strokeWidth:2}} />
-            <Line yAxisId="pop" dataKey="Popularity" stroke="#f59e0b" strokeWidth={1.5} dot={false} connectNulls={true} strokeOpacity={pop ? 0.9 : 0} legendType={pop ? "line" : "none"} />
+            <Line dataKey="Streams Reales" stroke="#10b981" strokeWidth={2.5} dot={false} connectNulls={false} activeDot={{r:4,fill:"#10b981",stroke:"#0f172a",strokeWidth:2}} />
             {dmLabel&&<ReferenceLine x={dmLabel} stroke="#a855f7" strokeWidth={1.5} strokeDasharray="4 4"
               label={{value:"DM ▶",position:"top",fontSize:10,fill:"#a855f7"}} />}
             {lastActualLabel&&<ReferenceLine x={lastActualLabel} stroke="#475569" strokeWidth={1} strokeDasharray="3 3"
               label={{value:"Hoy →",position:"insideTopRight",fontSize:9,fill:"#94a3b8"}} />}
           </ComposedChart>
         </ResponsiveContainer>
+        {pop&&(
+          <div className="mt-2">
+            <div className="flex items-center gap-2 mb-1 px-1">
+              <span className="w-3 h-0.5 bg-amber-400 inline-block rounded"></span>
+              <span className="text-xs text-amber-400 font-medium">Popularity Index</span>
+              <span className="text-xs text-slate-600 ml-auto">0 – 100</span>
+            </div>
+            <ResponsiveContainer width="100%" height={80}>
+              <LineChart data={chartData} margin={{top:4,right:8,left:48,bottom:0}}>
+                <XAxis dataKey="label" hide />
+                <YAxis domain={[0,100]} tick={{fontSize:8,fill:"#92400e"}} axisLine={false} tickLine={false} width={48} tickFormatter={v=>`${v}`} ticks={[0,25,50,75,100]} />
+                <Tooltip content={({active,payload,label})=>{
+                  if(!active||!payload?.length) return null;
+                  const v=payload.find(p=>p.dataKey==="Popularity")?.value;
+                  if(v==null) return null;
+                  return <div className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-xs"><span className="text-slate-400">{label} </span><span className="text-amber-400 font-bold">{v}/100</span></div>;
+                }} />
+                {dmLabel&&<ReferenceLine x={dmLabel} stroke="#a855f7" strokeWidth={1} strokeDasharray="4 4" />}
+                {lastActualLabel&&<ReferenceLine x={lastActualLabel} stroke="#475569" strokeWidth={1} strokeDasharray="3 3" />}
+                <Line dataKey="Popularity" stroke="#f59e0b" strokeWidth={2} dot={false} connectNulls={true} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        )}
       </div>
       <div className="bg-slate-900 rounded-xl border border-slate-800 p-5 flex flex-col gap-4">
         {/* Header */}
