@@ -2278,10 +2278,14 @@ const DMManagerTab = ({ catalog, onUpdateStatus, dmOverrides, onUpdateDM, onRemo
     const c = campaignFor(track.id);
     const liftPct  = track.dm?.liftPct ?? null;
     const revenue  = track.dm?.net ?? 0;
-    const days = c.startDate && c.endDate
-      ? Math.round((new Date(c.endDate) - new Date(c.startDate)) / 86400000)
-      : c.startDate
-      ? Math.round((new Date() - new Date(c.startDate)) / 86400000)
+    // Fallback to static config dates when not set via DM Manager UI
+    const startDate = c.startDate ?? (track.dmStart > 0 ? track.history[track.dmStart]?.date : null);
+    const endDate   = c.endDate   ?? (track.dmEnd   != null ? track.history[track.dmEnd]?.date : null);
+    const displayStart = startDate ?? (track.dmStart === 0 ? "Antes de Mar 2025" : null);
+    const days = startDate && endDate
+      ? Math.round((new Date(endDate) - new Date(startDate)) / 86400000)
+      : startDate
+      ? Math.round((new Date() - new Date(startDate)) / 86400000)
       : null;
 
     return (
@@ -2321,10 +2325,10 @@ const DMManagerTab = ({ catalog, onUpdateStatus, dmOverrides, onUpdateDM, onRemo
         </div>
 
         {/* Campaign dates */}
-        {(c.startDate || c.endDate) && (
+        {(displayStart || endDate) && (
           <div className="flex items-center gap-3 text-xs text-slate-500 bg-slate-800/60 rounded-lg px-3 py-2">
-            {c.startDate && <span>Inicio: <span className="text-slate-300">{c.startDate}</span></span>}
-            {c.endDate   && <span>Fin: <span className="text-slate-300">{c.endDate}</span></span>}
+            {displayStart && <span>Inicio: <span className="text-slate-300">{displayStart}</span></span>}
+            {endDate      && <span>Fin: <span className="text-slate-300">{endDate}</span></span>}
             {days != null && <span className="ml-auto text-slate-400">{days}d</span>}
           </div>
         )}
@@ -2677,7 +2681,7 @@ const DMAuditTab = ({ track }) => {
     </div>
   );
   const commEff = ((sources.editorial+sources.algorithmic)/100)*30;
-  const liftC = dm.liftPct>40?"emerald":dm.liftPct>15?"amber":"rose";
+  const liftC = dm.noBaseline?"slate":dm.liftPct>40?"emerald":dm.liftPct>15?"amber":"rose";
   const srcData=[
     {name:"Editorial",value:sources.editorial,color:"#a855f7"},
     {name:"Algorítmico",value:sources.algorithmic,color:"#6366f1"},
@@ -2695,7 +2699,7 @@ const DMAuditTab = ({ track }) => {
         <div className="col-span-2 bg-gradient-to-br from-purple-900/30 to-slate-900 border border-purple-500/20 rounded-xl p-5">
           <p className="text-xs text-slate-400 mb-1">Lift Observado DM</p>
           <p className={`text-5xl font-black ${CV[liftC].text}`}>{dm.liftPct!=null?(dm.liftPct>0?"+":"")+dm.liftPct+"%":"—"}</p>
-          <p className="text-xs text-slate-400 mt-1">En DM desde: {history[dmStart]?.label ?? "—"}</p>
+          <p className="text-xs text-slate-400 mt-1">En DM desde: {dmStart===0 ? "Antes de Mar 2025 (sin fecha exacta)" : (history[dmStart]?.label ?? "—")}</p>
           <p className="text-xs text-slate-500 mt-2">{dm.noBaseline ? "Sin datos pre-DM — baseline no calculable" : "Streams Reales vs Baseline EWLS Orgánico"}</p>
           <div className="flex gap-5 mt-4">
             {[["Observado",fmt.k(dm.observed),"text-white"],["Baseline",dm.noBaseline?"—":fmt.k(dm.baseline),"text-purple-300"],["Incremental",dm.noBaseline?"—":`+${fmt.k(dm.incremental)}`,"text-emerald-400"]].map(([l,v,c])=>(
@@ -2764,7 +2768,7 @@ const DMAuditTab = ({ track }) => {
             <Legend wrapperStyle={{fontSize:"11px"}} />
             <Area dataKey="Baseline Orgánico" fill="#a855f7" fillOpacity={0.15} stroke="#a855f7" strokeWidth={1.5} strokeDasharray="5 3" />
             <Area dataKey="Streams Reales" fill="#10b981" fillOpacity={0.2} stroke="#10b981" strokeWidth={2} />
-            {dmStart!=null&&<ReferenceLine x={history[dmStart]?.label} stroke="#a855f7" strokeWidth={1.5} strokeDasharray="4 4"
+            {dmStart!=null&&dmStart>0&&<ReferenceLine x={history[dmStart]?.label} stroke="#a855f7" strokeWidth={1.5} strokeDasharray="4 4"
               label={{value:"DM ▶",fontSize:10,fill:"#a855f7",position:"top"}} />}
           </ComposedChart>
         </ResponsiveContainer>
