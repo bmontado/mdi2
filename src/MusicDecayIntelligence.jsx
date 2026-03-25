@@ -611,20 +611,25 @@ const buildCatalog = (liveData = {}) => TRACKS_CFG.map(cfg => {
   const histRaw = buildHistoryFromReal(cfg.id, liveRaw);
   const history = computeBaseline(histRaw, cfg.dmStart);
   const metrics = calcMetrics(history);
-  let dm = { liftPct:0, incremental:0, gross:0, commission:0, net:0, observed:0, baseline:0 };
+  let dm = { liftPct:null, incremental:null, gross:null, commission:null, net:null, observed:0, baseline:0, noBaseline:false };
   if (cfg.dmStart != null) {
+    const trainLen = Math.min(cfg.dmStart, CFG.TRAIN_DAYS);
+    const hasBaseline = trainLen >= 7;
     const camp = history.slice(cfg.dmStart, cfg.dmEnd ?? history.length);
     const obs = camp.reduce((s,d)=>s+d.streams,0);
     const bl  = camp.reduce((s,d)=>s+(d.baseline??d.streams),0);
     const inc = obs - bl;
-    const gross = inc * cfg.royalty;
+    const gross = hasBaseline ? inc * cfg.royalty : null;
     // Discovery Mode cobra 30% sobre todos los streams incrementales generados
-    const comm = gross * CFG.DM_CUT;
+    const comm = gross != null ? gross * CFG.DM_CUT : null;
     dm = {
-      liftPct: bl>0 ? +((inc/bl)*100).toFixed(1) : 0,
-      incremental: Math.round(inc), gross:+gross.toFixed(2),
-      commission:+comm.toFixed(2), net:+(gross-comm).toFixed(2),
-      observed:obs, baseline:bl,
+      liftPct:     hasBaseline && bl>0 ? +((inc/bl)*100).toFixed(1) : null,
+      incremental: hasBaseline ? Math.round(inc) : null,
+      gross:       gross != null ? +gross.toFixed(2) : null,
+      commission:  comm != null ? +comm.toFixed(2) : null,
+      net:         (gross != null && comm != null) ? +(gross-comm).toFixed(2) : null,
+      observed: obs, baseline: bl,
+      noBaseline: !hasBaseline,
     };
   }
   // Auto-detect candidatos: tracks con decay real y volumen suficiente
@@ -2685,17 +2690,17 @@ const DMAuditTab = ({ track }) => {
       <div className="grid grid-cols-4 gap-4">
         <div className="col-span-2 bg-gradient-to-br from-purple-900/30 to-slate-900 border border-purple-500/20 rounded-xl p-5">
           <p className="text-xs text-slate-400 mb-1">Lift Observado DM</p>
-          <p className={`text-5xl font-black ${CV[liftC].text}`}>{dm.liftPct>0?"+":""}{dm.liftPct}%</p>
+          <p className={`text-5xl font-black ${CV[liftC].text}`}>{dm.liftPct!=null?(dm.liftPct>0?"+":"")+dm.liftPct+"%":"—"}</p>
           <p className="text-xs text-slate-400 mt-1">En DM desde: {history[dmStart]?.label ?? "—"}</p>
-          <p className="text-xs text-slate-500 mt-2">Streams Reales vs Baseline EWLS Orgánico</p>
+          <p className="text-xs text-slate-500 mt-2">{dm.noBaseline ? "Sin datos pre-DM — baseline no calculable" : "Streams Reales vs Baseline EWLS Orgánico"}</p>
           <div className="flex gap-5 mt-4">
-            {[["Observado",fmt.k(dm.observed),"text-white"],["Baseline",fmt.k(dm.baseline),"text-purple-300"],["Incremental",`+${fmt.k(dm.incremental)}`,"text-emerald-400"]].map(([l,v,c])=>(
+            {[["Observado",fmt.k(dm.observed),"text-white"],["Baseline",dm.noBaseline?"—":fmt.k(dm.baseline),"text-purple-300"],["Incremental",dm.noBaseline?"—":`+${fmt.k(dm.incremental)}`,"text-emerald-400"]].map(([l,v,c])=>(
               <div key={l}><p className="text-xs text-slate-500">{l}</p><p className={`text-sm font-bold ${c}`}>{v}</p></div>
             ))}
           </div>
         </div>
-        <StatCard label="Revenue Bruto Incremental" value={fmt.usd(dm.gross)} sub={`${fmt.k(dm.incremental)} streams × $${track.royalty}/stream`} color="emerald" icon={DollarSign} />
-        <StatCard label="Revenue Neto (post-comisión)" value={fmt.usd(dm.net)} sub={`Comisión Spotify: ${fmt.usd(dm.commission)}`} color={dm.net>0?"emerald":"rose"} icon={TrendingUp} />
+        <StatCard label="Revenue Bruto Incremental" value={dm.noBaseline?"—":fmt.usd(dm.gross)} sub={dm.noBaseline?"Sin datos pre-DM":`${fmt.k(dm.incremental)} streams × $${track.royalty}/stream`} color="emerald" icon={DollarSign} />
+        <StatCard label="Revenue Neto (post-comisión)" value={dm.noBaseline?"—":fmt.usd(dm.net)} sub={dm.noBaseline?"Sin datos pre-DM":`Comisión Spotify: ${fmt.usd(dm.commission)}`} color={dm.net!=null&&dm.net>0?"emerald":"rose"} icon={TrendingUp} />
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div className="bg-slate-900 rounded-xl border border-slate-800 p-5">
@@ -2704,7 +2709,7 @@ const DMAuditTab = ({ track }) => {
             {[
               {label:"Revenue Bruto Incremental",value:dm.gross,color:"text-emerald-400",sign:"+"},
               {label:`Comisión Spotify (${commEff.toFixed(0)}% efectivo)`,value:dm.commission,color:"text-rose-400",sign:"−"},
-              {label:"Revenue Neto DM",value:dm.net,color:dm.net>=0?"text-emerald-400":"text-rose-400",sign:dm.net>=0?"+":"",border:true},
+              {label:"Revenue Neto DM",value:dm.net,color:(dm.net??0)>=0?"text-emerald-400":"text-rose-400",sign:(dm.net??0)>=0?"+":"",border:true},
             ].map(row=>(
               <div key={row.label} className={`flex items-center justify-between p-3 rounded-lg ${row.border?"bg-slate-800 border border-slate-700":"bg-slate-800/40"}`}>
                 <span className="text-xs text-slate-300">{row.border&&<CheckCircle size={11} className="inline mr-1 text-emerald-400" />}{row.label}</span>
