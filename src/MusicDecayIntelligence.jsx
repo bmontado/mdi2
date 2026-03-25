@@ -481,38 +481,75 @@ const buildHistoryFromReal = (tid, rawOverride = null) => {
 const computeBaseline = (history, dmStart) => {
   if (dmStart == null)
     return history.map(d => ({ ...d, baseline:d.streams, ci_lo:d.streams, ci_hi:d.streams }));
-  const tStart = Math.max(0, dmStart - CFG.TRAIN_DAYS);
-  const train = history.slice(tStart, dmStart);
-  if (train.length < 7)
+
+  // Extended 90-day training window for better seasonality coverage
+  const TRAIN_EXT = 90;
+  const tStart = Math.max(0, dmStart - TRAIN_EXT);
+  const trainRaw = history.slice(tStart, dmStart);
+  if (trainRaw.length < 7)
     return history.map(d => ({ ...d, baseline:d.streams, ci_lo:d.streams, ci_hi:d.streams }));
+
+  // Winsorize spikes at 97th percentile before fitting
+  const sorted = [...trainRaw.map(d => d.streams)].sort((a,b) => a-b);
+  const p97 = sorted[Math.min(Math.floor(sorted.length * 0.97), sorted.length-1)];
+  const train = trainRaw.map(d => ({ ...d, streams: Math.min(d.streams, p97) }));
+
+  // Exponential time-weighting (recent days matter more)
   const lam = Math.log(2) / CFG.HALF_LIFE;
   const w = train.map((_, i) => Math.exp(-lam * (train.length - 1 - i)));
   const wSum = w.reduce((a,b) => a+b, 0);
   const nw = w.map(x => x / wSum);
-  const wMx = train.reduce((s,d,i) => s + d.day * nw[i], 0);
-  const wMs = train.reduce((s,d,i) => s + d.streams * nw[i], 0);
-  const num = train.reduce((s,d,i) => s + nw[i]*(d.day-wMx)*(d.streams-wMs), 0);
-  const den = train.reduce((s,d,i) => s + nw[i]*(d.day-wMx)**2, 0);
-  let slope = den > 0 ? num/den : 0;
-  const anchor = history[dmStart-1]?.streams || wMs;
-  const maxSlope = anchor * CFG.SLOPE_CAP / 7;
-  slope = Math.max(-maxSlope, Math.min(maxSlope, slope));
+
+  // ── Log-space EWLS (captures exponential catalog decay naturally) ──
+  const logS = train.map(d => Math.log(d.streams + 1));
+  const wMx  = train.reduce((s,d,i) => s + d.day * nw[i], 0);
+  const wMl  = logS.reduce((s,v,i) => s + v * nw[i], 0);       // weighted mean log-streams
+
+  // Fit slope only when we have enough data (>= 28 days); otherwise flat level
+  let slopeL = 0;
+  if (train.length >= 28) {
+    const num = train.reduce((s,d,i) => s + nw[i]*(d.day-wMx)*(logS[i]-wMl), 0);
+    const den = train.reduce((s,d,i) => s + nw[i]*(d.day-wMx)**2, 0);
+    slopeL = den > 0 ? num/den : 0;
+    // Cap: max ~5% per week in log-space (~0.007/day)
+    const maxSlopeL = 0.05 / 7;
+    slopeL = Math.max(-maxSlopeL, Math.min(maxSlopeL, slopeL));
+  }
+
+  // DOW seasonality in log-space
   const dowS = new Array(7).fill(0), dowC = new Array(7).fill(0);
   train.forEach((d,i) => {
-    const pred = wMs + slope*(d.day-wMx);
-    dowS[d.dow] += (d.streams-pred)*nw[i]; dowC[d.dow] += nw[i];
+    const pred = wMl + slopeL*(d.day-wMx);
+    dowS[d.dow] += (logS[i]-pred)*nw[i]; dowC[d.dow] += nw[i];
   });
   const rawDow = dowS.map((s,i) => dowC[i]>0 ? s/dowC[i] : 0);
   const meanDow = rawDow.reduce((a,b)=>a+b,0)/7;
-  const dow7 = rawDow.map(c => (c-meanDow)*CFG.RIDGE);
-  const resid = train.map(d => d.streams-(wMs+slope*(d.day-wMx)+dow7[d.dow]));
+  const dow7L = rawDow.map(c => (c-meanDow)*CFG.RIDGE);
+
+  // Anchor at the actual stream level just before DM start (in log-space)
+  const anchorStreams = history[dmStart-1]?.streams || Math.round(Math.exp(wMl)-1);
+  const anchorL = Math.log(anchorStreams + 1);
+  const anchorDay = history[dmStart-1]?.day ?? (dmStart-1);
+
+  // Residuals for CI
+  const resid = train.map((d,i) => {
+    const pred = wMl + slopeL*(d.day-wMx) + dow7L[d.dow];
+    return logS[i] - pred;
+  });
   const stdR = Math.sqrt(resid.reduce((s,r)=>s+r*r,0)/resid.length);
+
   return history.map((d,i) => {
-    const dfa = d.day - (history[dmStart-1]?.day ?? d.day);
-    const bl = Math.max(anchor + slope*dfa + dow7[d.dow], anchor*0.05);
-    const horizon = Math.max(0, i-dmStart);
+    const dfa = d.day - anchorDay;
+    const blL = anchorL + slopeL*dfa + dow7L[d.dow];
+    const bl   = Math.max(Math.round(Math.exp(blL) - 1), Math.round(anchorStreams * 0.05));
+    const horizon = Math.max(0, i - dmStart);
     const ci = CFG.CI * stdR * Math.sqrt(1 + horizon/train.length);
-    return { ...d, baseline:Math.round(bl), ci_lo:Math.round(Math.max(bl-ci,0)), ci_hi:Math.round(bl+ci) };
+    return {
+      ...d,
+      baseline: bl,
+      ci_lo: Math.round(Math.max(Math.exp(blL - ci) - 1, 0)),
+      ci_hi: Math.round(Math.exp(blL + ci) - 1),
+    };
   });
 };
 
@@ -521,31 +558,41 @@ const computeBaseline = (history, dmStart) => {
 // ════════════════════════════════════════════════════════════════
 const appendForecast = (history, dmStart) => {
   if (dmStart == null || history.length < 7) return history;
-  const tStart = Math.max(0, dmStart - CFG.TRAIN_DAYS);
-  const train = history.slice(tStart, dmStart);
-  if (train.length < 7) return history;
+  const TRAIN_EXT = 90;
+  const tStart = Math.max(0, dmStart - TRAIN_EXT);
+  const trainRaw = history.slice(tStart, dmStart);
+  if (trainRaw.length < 7) return history;
+  // Winsorize
+  const sorted = [...trainRaw.map(d => d.streams)].sort((a,b) => a-b);
+  const p97 = sorted[Math.min(Math.floor(sorted.length * 0.97), sorted.length-1)];
+  const train = trainRaw.map(d => ({ ...d, streams: Math.min(d.streams, p97) }));
   const lam = Math.log(2) / CFG.HALF_LIFE;
   const w = train.map((_, i) => Math.exp(-lam * (train.length - 1 - i)));
   const wSum = w.reduce((a,b) => a+b, 0);
   const nw = w.map(x => x / wSum);
+  const logS = train.map(d => Math.log(d.streams + 1));
   const wMx = train.reduce((s,d,i) => s + d.day * nw[i], 0);
-  const wMs = train.reduce((s,d,i) => s + d.streams * nw[i], 0);
-  const num = train.reduce((s,d,i) => s + nw[i]*(d.day-wMx)*(d.streams-wMs), 0);
-  const den = train.reduce((s,d,i) => s + nw[i]*(d.day-wMx)**2, 0);
-  let slope = den > 0 ? num/den : 0;
-  const anchor = history[dmStart-1]?.streams || wMs;
-  const maxSlope = anchor * CFG.SLOPE_CAP / 7;
-  slope = Math.max(-maxSlope, Math.min(maxSlope, slope));
+  const wMl = logS.reduce((s,v,i) => s + v * nw[i], 0);
+  let slopeL = 0;
+  if (train.length >= 28) {
+    const num = train.reduce((s,d,i) => s + nw[i]*(d.day-wMx)*(logS[i]-wMl), 0);
+    const den = train.reduce((s,d,i) => s + nw[i]*(d.day-wMx)**2, 0);
+    slopeL = den > 0 ? num/den : 0;
+    const maxSlopeL = 0.05 / 7;
+    slopeL = Math.max(-maxSlopeL, Math.min(maxSlopeL, slopeL));
+  }
   const dowS = new Array(7).fill(0), dowC = new Array(7).fill(0);
   train.forEach((d,i) => {
-    const pred = wMs + slope*(d.day-wMx);
-    dowS[d.dow] += (d.streams-pred)*nw[i]; dowC[d.dow] += nw[i];
+    const pred = wMl + slopeL*(d.day-wMx);
+    dowS[d.dow] += (logS[i]-pred)*nw[i]; dowC[d.dow] += nw[i];
   });
   const rawDow = dowS.map((s,i) => dowC[i]>0 ? s/dowC[i] : 0);
   const meanDow = rawDow.reduce((a,b)=>a+b,0)/7;
-  const dow7 = rawDow.map(c => (c-meanDow)*CFG.RIDGE);
-  const resid = train.map(d => d.streams-(wMs+slope*(d.day-wMx)+dow7[d.dow]));
+  const dow7L = rawDow.map(c => (c-meanDow)*CFG.RIDGE);
+  const resid = train.map((d,i) => logS[i]-(wMl+slopeL*(d.day-wMx)+dow7L[d.dow]));
   const stdR = Math.sqrt(resid.reduce((s,r)=>s+r*r,0)/resid.length);
+  const anchorStreams = history[dmStart-1]?.streams || Math.round(Math.exp(wMl)-1);
+  const anchorL = Math.log(anchorStreams + 1);
   const anchorDay = history[dmStart-1]?.day ?? history.at(-1).day;
   const lastPt = history.at(-1);
   const forecast = [];
@@ -553,7 +600,8 @@ const appendForecast = (history, dmStart) => {
     const fDay = lastPt.day + i;
     const fDow = (lastPt.dow + i) % 7;
     const dfa = fDay - anchorDay;
-    const bl = Math.max(anchor + slope*dfa + dow7[fDow], anchor*0.05);
+    const blL = anchorL + slopeL*dfa + dow7L[fDow];
+    const bl  = Math.max(Math.round(Math.exp(blL) - 1), Math.round(anchorStreams * 0.05));
     const horizon = history.length - dmStart + i;
     const ci = CFG.CI * stdR * Math.sqrt(1 + horizon/train.length);
     const fDate = new Date(lastPt.date + 'T12:00:00');
@@ -563,7 +611,9 @@ const appendForecast = (history, dmStart) => {
       day: fDay, dow: fDow, streams: null,
       date: fDate.toISOString().slice(0,10),
       label: `${mm}/${dd}`, isForecast: true,
-      baseline: Math.round(bl), ci_lo: Math.round(Math.max(bl-ci,0)), ci_hi: Math.round(bl+ci)
+      baseline: bl,
+      ci_lo: Math.round(Math.max(Math.exp(blL - ci) - 1, 0)),
+      ci_hi: Math.round(Math.exp(blL + ci) - 1),
     });
   }
   return [...history, ...forecast];
@@ -1628,7 +1678,6 @@ const PerformanceTab = ({ tracks }) => {
 // ════════════════════════════════════════════════════════════════
 const DecayTab = ({ track, catalog }) => {
   const [viewMode, setViewMode] = useState("daily");
-  const [windowSize, setWindowSize] = useState(null);
   const [showContext, setShowContext] = useState(false);
   const { metrics, history, dmStart } = track;
 
@@ -1661,10 +1710,9 @@ const DecayTab = ({ track, catalog }) => {
   },[withForecast,viewMode,lastActualIdx,track]);
 
   const totalLen = allChartData.length;
-  const effectiveWindow = windowSize ?? totalLen;
   const chartData = useMemo(()=>
-    effectiveWindow < totalLen ? allChartData.slice(-effectiveWindow) : allChartData
-  ,[allChartData, effectiveWindow, totalLen]);
+    allChartData
+  ,[allChartData]);
 
   // ── Dynamic insight computation (3-axis: lifecycle · window score · DM outcome intel) ──
   const insight = useMemo(() => {
@@ -1889,13 +1937,13 @@ const DecayTab = ({ track, catalog }) => {
         <div className="flex items-center justify-between mb-4">
           <div>
             <h3 className="text-sm font-semibold text-slate-200">Decay Intelligence Chart — {track.name}</h3>
-            <p className="text-xs text-slate-500 mt-0.5">EWLS Local-Level Anchored · Half-life {CFG.HALF_LIFE}d · Ridge {CFG.RIDGE} · ±{CFG.SLOPE_CAP*100}%/sem · IC 95% · +{CFG.FORECAST_DAYS}d pronóstico</p>
+            <p className="text-xs text-slate-500 mt-0.5">Log-EWLS · Ventana 90d · Winsorizado P97 · DOW estacional · IC 95% · +{CFG.FORECAST_DAYS}d pronóstico</p>
           </div>
           <div className="flex items-center gap-2">
             {dmStart!=null&&(
               <div className="flex items-center gap-1.5 bg-purple-500/10 border border-purple-500/20 rounded-lg px-3 py-1">
                 <Zap size={11} className="text-purple-400" />
-                <span className="text-xs text-purple-300 font-medium">DM Día {dmStart}</span>
+                <span className="text-xs text-purple-300 font-medium">DM desde {dmStart===0?"antes del dataset":history[dmStart]?.date??dmStart}</span>
               </div>
             )}
             <div className="flex bg-slate-800 rounded-lg p-0.5">
@@ -1904,29 +1952,6 @@ const DecayTab = ({ track, catalog }) => {
                   className={`text-xs px-3 py-1.5 rounded-md capitalize transition-colors ${viewMode===v?"bg-slate-600 text-white":"text-slate-400 hover:text-slate-200"}`}>{v==="daily"?"Diario":"Semanal"}</button>
               ))}
             </div>
-          </div>
-        </div>
-        {/* ── Timeframe slider ── */}
-        <div className="flex items-center gap-3 mb-4 px-1">
-          <span className="text-xs text-slate-500 flex-shrink-0 w-7">14d</span>
-          <div className="flex-1 relative">
-            <input
-              type="range" min={14} max={totalLen} value={effectiveWindow}
-              onChange={e => { const v=Number(e.target.value); setWindowSize(v>=totalLen?null:v); }}
-              className="w-full h-1.5 rounded-full appearance-none cursor-pointer"
-              style={{
-                background:`linear-gradient(to right, #a855f7 0%, #a855f7 ${((effectiveWindow-14)/(totalLen-14))*100}%, #1e293b ${((effectiveWindow-14)/(totalLen-14))*100}%, #1e293b 100%)`
-              }}
-            />
-          </div>
-          <div className="flex items-center gap-1.5 flex-shrink-0">
-            <span className="text-xs font-semibold text-purple-300 tabular-nums w-16 text-right">
-              {effectiveWindow >= totalLen ? "Todo" : `Últimos ${effectiveWindow}d`}
-            </span>
-            {windowSize && (
-              <button onClick={()=>setWindowSize(null)}
-                className="text-xs text-slate-500 hover:text-slate-300 transition-colors">✕</button>
-            )}
           </div>
         </div>
         <ResponsiveContainer width="100%" height={320}>
