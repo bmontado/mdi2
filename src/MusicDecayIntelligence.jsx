@@ -626,6 +626,15 @@ const buildCatalog = (liveData = {}) => TRACKS_CFG.map(cfg => {
     const gross = hasBaseline ? inc * cfg.royalty : null;
     // Discovery Mode cobra 30% sobre todos los streams incrementales generados
     const comm = gross != null ? gross * CFG.DM_CUT : null;
+    // Post-DM: compare avg streams during DM vs after leaving DM (completed tracks only)
+    const postDmSlice = cfg.dmEnd != null ? history.slice(cfg.dmEnd) : [];
+    const dmAvg      = camp.length > 0 ? +(obs / camp.length).toFixed(0) : null;
+    const postDmAvg  = postDmSlice.length > 0
+      ? +(postDmSlice.reduce((s,d)=>s+d.streams,0) / postDmSlice.length).toFixed(0)
+      : null;
+    const postDmDelta = (postDmAvg != null && dmAvg != null && dmAvg > 0)
+      ? +((postDmAvg / dmAvg - 1) * 100).toFixed(1)
+      : null;
     dm = {
       liftPct:     hasBaseline && bl>0 ? +((inc/bl)*100).toFixed(1) : null,
       incremental: hasBaseline ? Math.round(inc) : null,
@@ -634,6 +643,7 @@ const buildCatalog = (liveData = {}) => TRACKS_CFG.map(cfg => {
       net:         (gross != null && comm != null) ? +(gross-comm).toFixed(2) : null,
       observed: obs, baseline: bl,
       noBaseline: !hasBaseline,
+      dmAvg, postDmAvg, postDmDelta,
     };
   }
   // Auto-detect candidatos: tracks con decay real y volumen suficiente
@@ -2330,6 +2340,30 @@ const DMManagerTab = ({ catalog, onUpdateStatus, dmOverrides, onUpdateDM, onRemo
             {displayStart && <span>Inicio: <span className="text-slate-300">{displayStart}</span></span>}
             {endDate      && <span>Fin: <span className="text-slate-300">{endDate}</span></span>}
             {days != null && <span className="ml-auto text-slate-400">{days}d</span>}
+          </div>
+        )}
+
+        {/* Post-DM delta (completed tracks only) */}
+        {mode === "completed" && track.dm?.postDmDelta != null && (
+          <div className="bg-slate-800/60 rounded-lg px-3 py-2">
+            <p className="text-xs text-slate-500 mb-1.5">Streams post-salida de DM</p>
+            <div className="flex items-center gap-4">
+              <div>
+                <p className="text-xs text-slate-500">Durante DM</p>
+                <p className="text-sm font-bold text-white">{fmt.k(track.dm.dmAvg)}/día</p>
+              </div>
+              <div className="text-slate-600 text-lg">→</div>
+              <div>
+                <p className="text-xs text-slate-500">Post-DM</p>
+                <p className="text-sm font-bold text-white">{fmt.k(track.dm.postDmAvg)}/día</p>
+              </div>
+              <div className="ml-auto text-right">
+                <p className="text-xs text-slate-500">Δ</p>
+                <p className={`text-sm font-bold ${track.dm.postDmDelta >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                  {track.dm.postDmDelta >= 0 ? "+" : ""}{track.dm.postDmDelta}%
+                </p>
+              </div>
+            </div>
           </div>
         )}
 
