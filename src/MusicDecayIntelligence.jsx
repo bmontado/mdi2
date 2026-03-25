@@ -279,44 +279,48 @@ const RAW_STREAM_DATA = {
 // ════════════════════════════════════════════════════════════════
 const _DM_CONFIG = {
   // === NTVG 2 (S4A keys — mirrors track-XXX above) ===
-  // Dataset starts 2025-03-24 (day 0). All tracks were in DM before data starts.
-  // Active (in DM since pre-2025, dmStart:0 = already in DM at data start):
-  "s4a-001": { status:"active", dmStart:0 },  // A las nueve
-  "s4a-002": { status:"active", dmStart:0 },  // Tan Lejos
-  "s4a-003": { status:"active", dmStart:0 },  // Ese Maldito Momento
-  "s4a-004": { status:"active", dmStart:0 },  // Chau
-  "s4a-005": { status:"active", dmStart:0 },  // No Te Imaginas
-  "s4a-006": { status:"active", dmStart:0 },  // De Nada Sirve
-  "s4a-009": { status:"active", dmStart:0 },  // El error
-  "s4a-012": { status:"active", dmStart:0 },  // Cero a la izquierda
-  "s4a-013": { status:"active", dmStart:0 },  // Llueve tranquilo
-  "s4a-015": { status:"active", dmStart:0 },  // Prendido fuego
-  "s4a-017": { status:"active", dmStart:0 },  // Verte reír
-  "s4a-018": { status:"active", dmStart:0 },  // Esos Ojos
-  "s4a-019": { status:"active", dmStart:0 },  // Memorias del olvido
-  "s4a-021": { status:"active", dmStart:0 },  // Me Cansé
-  "s4a-026": { status:"active", dmStart:0 },  // Arde
-  "s4a-027": { status:"active", dmStart:0 },  // Tu defecto es el mío
-  "s4a-030": { status:"active", dmStart:0 },  // En Mil Pedazos
-  "s4a-031": { status:"active", dmStart:0 },  // Comodín
-  "s4a-032": { status:"active", dmStart:0 },  // Pensar
-  "s4a-034": { status:"active", dmStart:0 },  // Algo Me Dice
-  "s4a-035": { status:"active", dmStart:0 },  // No Era Cierto
-  "s4a-036": { status:"active", dmStart:0 },  // Paranoia
-  "s4a-040": { status:"active", dmStart:0 },  // Autodestructivo
-  "s4a-041": { status:"active", dmStart:0 },  // Sin pena ni gloria
-  "s4a-045": { status:"active", dmStart:0 },  // Cosa Linda
-  "s4a-103": { status:"active", dmStart:0 },  // Ángel con campera
-  // Completed: entered DM in 2024 (before data), exited 2026-02-01 = day 314
-  "s4a-011": { status:"completed", dmStart:0, dmEnd:314 },  // Al vacío
-  "s4a-014": { status:"completed", dmStart:0, dmEnd:314 },  // Venganza
-  "s4a-025": { status:"completed", dmStart:0, dmEnd:314 },  // En Llamas
-  "s4a-058": { status:"completed", dmStart:0, dmEnd:314 },  // Los indiferentes
-  "s4a-060": { status:"completed", dmStart:0, dmEnd:314 },  // Alba
-  "s4a-061": { status:"completed", dmStart:0, dmEnd:314 },  // Mirarte A Los Ojos
-  "s4a-069": { status:"completed", dmStart:0, dmEnd:314 },  // El Camino
-  "s4a-113": { status:"completed", dmStart:0, dmEnd:314 },  // Detrás del cerro
-  "s4a-120": { status:"completed", dmStart:0, dmEnd:314 },  // Tirano
+  // Dataset starts 2025-03-24 (day 0).
+  // Key dates: day 283 = 2026-01-01 | day 314 = 2026-02-01 | day 342 = 2026-03-01
+  // Active — pre-2026 (in DM before dataset starts, no pre-DM baseline available):
+  "s4a-001": { status:"active", dmStart:0   },  // A las nueve
+  "s4a-002": { status:"active", dmStart:0   },  // Tan Lejos
+  "s4a-003": { status:"active", dmStart:0   },  // Ese Maldito Momento
+  "s4a-004": { status:"active", dmStart:0   },  // Chau
+  "s4a-006": { status:"active", dmStart:0   },  // De Nada Sirve
+  "s4a-009": { status:"active", dmStart:0   },  // El error
+  "s4a-013": { status:"active", dmStart:0   },  // Llueve tranquilo
+  "s4a-015": { status:"active", dmStart:0   },  // Prendido fuego
+  "s4a-017": { status:"active", dmStart:0   },  // Verte reír
+  "s4a-018": { status:"active", dmStart:0   },  // Esos Ojos
+  "s4a-021": { status:"active", dmStart:0   },  // Me Cansé
+  "s4a-026": { status:"active", dmStart:0   },  // Arde
+  "s4a-027": { status:"active", dmStart:0   },  // Tu defecto es el mío
+  "s4a-031": { status:"active", dmStart:0   },  // Comodín
+  "s4a-036": { status:"active", dmStart:0   },  // Paranoia
+  "s4a-041": { status:"active", dmStart:0   },  // Sin pena ni gloria
+  "s4a-103": { status:"active", dmStart:0   },  // Ángel con campera
+  // Active — Wave 2026-02-01 (entered DM day 314, baseline calculable):
+  "s4a-005": { status:"active", dmStart:314 },  // No Te Imaginas
+  "s4a-012": { status:"active", dmStart:314 },  // Cero a la izquierda
+  "s4a-019": { status:"active", dmStart:314 },  // Memorias del olvido
+  "s4a-032": { status:"active", dmStart:314 },  // Pensar
+  "s4a-034": { status:"active", dmStart:314 },  // Algo Me Dice
+  "s4a-035": { status:"active", dmStart:314 },  // No Era Cierto
+  "s4a-040": { status:"active", dmStart:314 },  // Autodestructivo
+  "s4a-045": { status:"active", dmStart:314 },  // Cosa Linda
+  // Active — Wave 2026-03-01 (entered DM day 342, baseline calculable):
+  "s4a-030": { status:"active", dmStart:342 },  // En Mil Pedazos
+  // Completed — pre-2026 entry, exited 2026-02-01 = day 314 (no pre-DM baseline):
+  "s4a-011": { status:"completed", dmStart:0,   dmEnd:314 },  // Al vacío
+  "s4a-014": { status:"completed", dmStart:0,   dmEnd:314 },  // Venganza
+  "s4a-058": { status:"completed", dmStart:0,   dmEnd:314 },  // Los indiferentes
+  "s4a-060": { status:"completed", dmStart:0,   dmEnd:314 },  // Alba
+  "s4a-061": { status:"completed", dmStart:0,   dmEnd:314 },  // Mirarte A Los Ojos
+  "s4a-069": { status:"completed", dmStart:0,   dmEnd:314 },  // El Camino
+  "s4a-113": { status:"completed", dmStart:0,   dmEnd:314 },  // Detrás del cerro
+  "s4a-120": { status:"completed", dmStart:0,   dmEnd:314 },  // Tirano
+  // Completed — En Llamas: entró 2026-01-01 (day 283), salió 2026-03-01 (day 342):
+  "s4a-025": { status:"completed", dmStart:283, dmEnd:342 },  // En Llamas
 };
 
 const TRACKS_CFG = Object.entries(RAW_STREAM_DATA).map(([id, t]) => {
