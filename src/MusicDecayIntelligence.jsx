@@ -453,11 +453,16 @@ _dedupedTracks.forEach(t => TRACKS_CFG.push(t));
 const buildHistoryFromReal = (tid, rawOverride = null) => {
   const raw = rawOverride ?? RAW_STREAM_DATA[tid];
   if (!raw) return [];
-  return raw.dates.map((date, i) => {
+  // Trim trailing zeros (días incompletos, ej. el día de hoy sin data final)
+  let endIdx = raw.streams.length;
+  while (endIdx > 0 && (raw.streams[endIdx - 1] === 0 || raw.streams[endIdx - 1] == null)) endIdx--;
+  const progArr = raw.programmedStreams ?? [];
+  return raw.dates.slice(0, endIdx).map((date, i) => {
     const d = new Date(date + "T12:00:00");
     const dow = d.getDay();
     return {
       day: i, dow, streams: raw.streams[i],
+      programmedStreams: progArr[i] ?? 0,
       date, label: d.toLocaleDateString("en-US", { month:"short", day:"numeric" }),
       baseline: null, ci_lo: null, ci_hi: null,
     };
@@ -662,7 +667,15 @@ const buildCatalog = (liveData = {}) => TRACKS_CFG.map(cfg => {
     const obs = camp.reduce((s,d)=>s+d.streams,0);
     const bl  = camp.reduce((s,d)=>s+(d.baseline??d.streams),0);
     const inc = obs - bl;
+    // Desglose algorítmico/orgánico durante la campaña
+    const campProgObs = camp.reduce((s,d)=>s+(d.programmedStreams??0),0);
+    const campOrgObs  = obs - campProgObs;
+    const algoRatio   = obs > 0 ? campProgObs / obs : 0;
+    const algoInc     = hasBaseline ? Math.round(inc * algoRatio) : null;
+    const orgInc      = hasBaseline ? Math.round(inc * (1 - algoRatio)) : null;
     const gross = hasBaseline ? inc * cfg.royalty : null;
+    const algoGross = algoInc != null ? +(algoInc * cfg.royalty).toFixed(2) : null;
+    const orgGross  = orgInc  != null ? +(orgInc  * cfg.royalty).toFixed(2) : null;
     // Discovery Mode cobra 30% sobre todos los streams incrementales generados
     const comm = gross != null ? gross * CFG.DM_CUT : null;
     // Post-DM: compare avg streams during DM vs after leaving DM (completed tracks only)
@@ -681,6 +694,8 @@ const buildCatalog = (liveData = {}) => TRACKS_CFG.map(cfg => {
       commission:  comm != null ? +comm.toFixed(2) : null,
       net:         (gross != null && comm != null) ? +(gross-comm).toFixed(2) : null,
       observed: obs, baseline: bl,
+      campProgObs, campOrgObs, algoRatio: +algoRatio.toFixed(3),
+      algoInc, orgInc, algoGross, orgGross,
       noBaseline: !hasBaseline,
       dmAvg, postDmAvg, postDmDelta,
     };
@@ -1668,6 +1683,7 @@ const PerformanceTab = ({ tracks }) => {
 const DecayTab = ({ track, catalog }) => {
   const [viewMode, setViewMode] = useState("daily");
   const [showContext, setShowContext] = useState(false);
+  const [showAlgo, setShowAlgo] = useState(false);
   const { metrics, history, dmStart } = track;
 
   // All hooks must be called unconditionally (Rules of Hooks)
@@ -1681,6 +1697,7 @@ const DecayTab = ({ track, catalog }) => {
     const base = withForecast.map((d,i)=>({
       label:d.label,
       "Streams Reales": d.isForecast ? null : d.streams,
+      "Streams Algorítmicos": (!d.isForecast && showAlgo) ? (d.programmedStreams ?? 0) : null,
       "Baseline Orgánico": d.isForecast ? null : d.baseline,
       "Pronóstico": (d.isForecast || i===lastActualIdx) ? d.baseline : null,
       "CI Superior":d.ci_hi, "CI Inferior":d.ci_lo,
@@ -1691,7 +1708,7 @@ const DecayTab = ({ track, catalog }) => {
       for(let i=0;i<base.length;i+=7){
         const chunk=base.slice(i,i+7);
         const agg=k=>{ const vals=chunk.map(d=>d[k]).filter(v=>v!=null); return vals.length?Math.round(vals.reduce((s,v)=>s+v,0)/vals.length):null; };
-        weeks.push({label:chunk[0]?.label,"Streams Reales":agg("Streams Reales"),"Baseline Orgánico":agg("Baseline Orgánico"),"Pronóstico":agg("Pronóstico"),"CI Superior":agg("CI Superior"),"CI Inferior":agg("CI Inferior"),"Popularity":agg("Popularity")});
+        weeks.push({label:chunk[0]?.label,"Streams Reales":agg("Streams Reales"),"Streams Algorítmicos":agg("Streams Algorítmicos"),"Baseline Orgánico":agg("Baseline Orgánico"),"Pronóstico":agg("Pronóstico"),"CI Superior":agg("CI Superior"),"CI Inferior":agg("CI Inferior"),"Popularity":agg("Popularity")});
       }
       return weeks;
     }
@@ -1935,6 +1952,11 @@ const DecayTab = ({ track, catalog }) => {
                 <span className="text-xs text-purple-300 font-medium">DM desde {dmStart===0?"antes del dataset":history[dmStart]?.date??dmStart}</span>
               </div>
             )}
+            <button onClick={()=>setShowAlgo(v=>!v)}
+              className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors ${showAlgo?"bg-orange-500/15 border-orange-500/30 text-orange-300":"bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200"}`}>
+              <span className="w-2 h-2 rounded-full inline-block" style={{background:"#f97316"}} />
+              Algorítmico
+            </button>
             <div className="flex bg-slate-800 rounded-lg p-0.5">
               {["daily","weekly"].map(v=>(
                 <button key={v} onClick={()=>setViewMode(v)}
@@ -1959,6 +1981,7 @@ const DecayTab = ({ track, catalog }) => {
               <Line dataKey="Baseline Orgánico" stroke="#a855f7" strokeWidth={2} dot={false} strokeDasharray="7 3" />
               <Line dataKey="Pronóstico" stroke="#a855f7" strokeWidth={1.5} dot={false} strokeDasharray="3 3" strokeOpacity={0.55} connectNulls={false} />
             </>}
+            {showAlgo&&<Line dataKey="Streams Algorítmicos" stroke="#f97316" strokeWidth={1.5} dot={false} connectNulls={false} strokeOpacity={0.85} />}
             <Line dataKey="Streams Reales" stroke="#10b981" strokeWidth={2.5} dot={false} connectNulls={false} activeDot={{r:4,fill:"#10b981",stroke:"#0f172a",strokeWidth:2}} />
             {dmLabel&&<ReferenceLine x={dmLabel} stroke="#a855f7" strokeWidth={1.5} strokeDasharray="4 4"
               label={{value:"DM ▶",position:"top",fontSize:10,fill:"#a855f7"}} />}
@@ -2313,44 +2336,44 @@ const DMManagerTab = ({ catalog, onUpdateStatus, dmOverrides, onUpdateDM, onRemo
       : null;
 
     return (
-      <div className={`rounded-xl border p-4 flex flex-col gap-3
+      <div className={`rounded-lg border p-3 flex flex-col gap-2
         ${mode==="active" ? "bg-emerald-500/5 border-emerald-500/20"
         : mode==="candidate" ? "bg-purple-500/5 border-purple-500/20"
         : "bg-slate-800/40 border-slate-700"}`}>
         {/* Track name + status */}
         <div className="flex items-start justify-between gap-2">
           <div>
-            <p className="text-sm font-semibold text-white leading-tight">{track.name}</p>
-            <p className="text-xs text-slate-500 mt-0.5">{track.artist}</p>
+            <p className="text-xs font-semibold text-white leading-tight">{track.name}</p>
+            <p className="text-[10px] text-slate-500 mt-0.5">{track.artist}</p>
           </div>
           <Badge status={track.status} />
         </div>
 
         {/* Metrics row */}
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-3 gap-1.5">
           <div>
-            <p className="text-xs text-slate-500">Avg/día</p>
-            <p className="text-sm font-bold text-white">{fmt.k(track.metrics?.avgStreams??0)}</p>
+            <p className="text-[10px] text-slate-500">Avg/día</p>
+            <p className="text-xs font-bold text-white">{fmt.k(track.metrics?.avgStreams??0)}</p>
           </div>
           {liftPct != null && (
             <div>
-              <p className="text-xs text-slate-500">Lift DM</p>
-              <p className={`text-sm font-bold ${liftPct>=0?"text-emerald-400":"text-rose-400"}`}>
+              <p className="text-[10px] text-slate-500">Lift DM</p>
+              <p className={`text-xs font-bold ${liftPct>=0?"text-emerald-400":"text-rose-400"}`}>
                 {liftPct>=0?"+":""}{liftPct}%
               </p>
             </div>
           )}
           {revenue > 0 && (
             <div>
-              <p className="text-xs text-slate-500">Revenue neto</p>
-              <p className="text-sm font-bold text-emerald-400">{fmt.usd(revenue)}</p>
+              <p className="text-[10px] text-slate-500">Revenue neto</p>
+              <p className="text-xs font-bold text-emerald-400">{fmt.usd(revenue)}</p>
             </div>
           )}
         </div>
 
         {/* Campaign dates */}
         {(displayStart || endDate) && (
-          <div className="flex items-center gap-3 text-xs text-slate-500 bg-slate-800/60 rounded-lg px-3 py-2">
+          <div className="flex items-center gap-2 text-[10px] text-slate-500 bg-slate-800/60 rounded-md px-2 py-1">
             {displayStart && <span>Inicio: <span className="text-slate-300">{displayStart}</span></span>}
             {endDate      && <span>Fin: <span className="text-slate-300">{endDate}</span></span>}
             {days != null && <span className="ml-auto text-slate-400">{days}d</span>}
@@ -2359,21 +2382,21 @@ const DMManagerTab = ({ catalog, onUpdateStatus, dmOverrides, onUpdateDM, onRemo
 
         {/* Post-DM delta (completed tracks only) */}
         {mode === "completed" && track.dm?.postDmDelta != null && (
-          <div className="bg-slate-800/60 rounded-lg px-3 py-2">
-            <p className="text-xs text-slate-500 mb-1.5">Streams post-salida de DM</p>
-            <div className="flex items-center gap-4">
+          <div className="bg-slate-800/60 rounded-md px-2 py-1.5">
+            <p className="text-[10px] text-slate-500 mb-1">Streams post-salida de DM</p>
+            <div className="flex items-center gap-3">
               <div>
-                <p className="text-xs text-slate-500">Durante DM</p>
-                <p className="text-sm font-bold text-white">{fmt.k(track.dm.dmAvg)}/día</p>
+                <p className="text-[10px] text-slate-500">Durante DM</p>
+                <p className="text-xs font-bold text-white">{fmt.k(track.dm.dmAvg)}/día</p>
               </div>
-              <div className="text-slate-600 text-lg">→</div>
+              <div className="text-slate-600 text-sm">→</div>
               <div>
-                <p className="text-xs text-slate-500">Post-DM</p>
-                <p className="text-sm font-bold text-white">{fmt.k(track.dm.postDmAvg)}/día</p>
+                <p className="text-[10px] text-slate-500">Post-DM</p>
+                <p className="text-xs font-bold text-white">{fmt.k(track.dm.postDmAvg)}/día</p>
               </div>
               <div className="ml-auto text-right">
-                <p className="text-xs text-slate-500">Δ</p>
-                <p className={`text-sm font-bold ${track.dm.postDmDelta >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                <p className="text-[10px] text-slate-500">Δ</p>
+                <p className={`text-xs font-bold ${track.dm.postDmDelta >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
                   {track.dm.postDmDelta >= 0 ? "+" : ""}{track.dm.postDmDelta}%
                 </p>
               </div>
@@ -2383,29 +2406,29 @@ const DMManagerTab = ({ catalog, onUpdateStatus, dmOverrides, onUpdateDM, onRemo
 
         {/* Note */}
         {c.note && (
-          <p className="text-xs text-slate-400 italic bg-slate-800/40 rounded-lg px-3 py-2">"{c.note}"</p>
+          <p className="text-[10px] text-slate-400 italic bg-slate-800/40 rounded-md px-2 py-1">"{c.note}"</p>
         )}
 
         {/* Actions */}
-        <div className="flex gap-2 mt-auto">
+        <div className="flex gap-1.5 mt-auto">
           {mode === "candidate" && freeSlots > 0 && (
             <button onClick={()=>handleActivate(track)}
-              className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white text-xs py-2 rounded-lg font-semibold transition-colors">
+              className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] py-1.5 rounded-md font-semibold transition-colors">
               Activar DM
             </button>
           )}
           {mode === "candidate" && freeSlots === 0 && (
-            <p className="text-xs text-rose-400 italic">Sin slots disponibles</p>
+            <p className="text-[10px] text-rose-400 italic">Sin slots disponibles</p>
           )}
           {mode === "active" && (
             <button onClick={()=>handleComplete(track)}
-              className="flex-1 bg-amber-600/80 hover:bg-amber-500 text-white text-xs py-2 rounded-lg font-semibold transition-colors">
+              className="flex-1 bg-amber-600/80 hover:bg-amber-500 text-white text-[10px] py-1.5 rounded-md font-semibold transition-colors">
               Completar campaña
             </button>
           )}
           {mode === "completed" && (
             <button onClick={()=>handleReactivate(track)}
-              className="flex-1 bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs py-2 rounded-lg font-medium transition-colors">
+              className="flex-1 bg-slate-700 hover:bg-slate-600 text-slate-300 text-[10px] py-1.5 rounded-md font-medium transition-colors">
               Nueva oportunidad →
             </button>
           )}
@@ -2446,7 +2469,7 @@ const DMManagerTab = ({ catalog, onUpdateStatus, dmOverrides, onUpdateDM, onRemo
             <span className="w-2 h-2 rounded-full bg-emerald-400" />
             <h3 className="text-sm font-semibold text-slate-200">Activos ({active.length})</h3>
           </div>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-4 gap-2">
             {active.map(t => <CampaignCard key={t.id} track={t} mode="active" />)}
           </div>
         </div>
@@ -2462,7 +2485,7 @@ const DMManagerTab = ({ catalog, onUpdateStatus, dmOverrides, onUpdateDM, onRemo
               ? <span className="text-xs text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">{freeSlots} slots disponibles</span>
               : <span className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 px-2 py-0.5 rounded-full">Sin slots</span>}
           </div>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-4 gap-2">
             {candidates.map(t => <CampaignCard key={t.id} track={t} mode="candidate" />)}
           </div>
         </div>
@@ -2749,10 +2772,29 @@ const DMAuditTab = ({ track }) => {
           <p className={`text-5xl font-black ${CV[liftC].text}`}>{dm.liftPct!=null?(dm.liftPct>0?"+":"")+dm.liftPct+"%":"—"}</p>
           <p className="text-xs text-slate-400 mt-1">En DM desde: {dmStart===0 ? "Antes de Mar 2025 (sin fecha exacta)" : (history[dmStart]?.label ?? "—")}</p>
           <p className="text-xs text-slate-500 mt-2">{dm.noBaseline ? "Sin datos pre-DM — baseline no calculable" : "Streams Reales vs Baseline EWLS Orgánico"}</p>
-          <div className="flex gap-5 mt-4">
-            {[["Observado",fmt.k(dm.observed),"text-white"],["Baseline",dm.noBaseline?"—":fmt.k(dm.baseline),"text-purple-300"],["Incremental",dm.noBaseline?"—":`+${fmt.k(dm.incremental)}`,"text-emerald-400"]].map(([l,v,c])=>(
+          <div className="flex gap-4 mt-4 flex-wrap">
+            {[
+              ["Observado",fmt.k(dm.observed),"text-white"],
+              ["Baseline",dm.noBaseline?"—":fmt.k(dm.baseline),"text-purple-300"],
+              ["Incremental",dm.noBaseline?"—":`+${fmt.k(dm.incremental)}`,"text-emerald-400"],
+            ].map(([l,v,c])=>(
               <div key={l}><p className="text-xs text-slate-500">{l}</p><p className={`text-sm font-bold ${c}`}>{v}</p></div>
             ))}
+          </div>
+          <div className="flex gap-4 mt-3 flex-wrap border-t border-slate-700/50 pt-3">
+            {[
+              ["Algorítmico",fmt.k(dm.campProgObs),"text-orange-300"],
+              ["Orgánico",fmt.k(dm.campOrgObs),"text-cyan-300"],
+              ["% Algo",`${Math.round((dm.algoRatio??0)*100)}%`,"text-orange-400"],
+            ].map(([l,v,c])=>(
+              <div key={l}><p className="text-xs text-slate-500">{l}</p><p className={`text-sm font-bold ${c}`}>{v}</p></div>
+            ))}
+            {!dm.noBaseline && dm.algoInc != null && (
+              <>
+                <div><p className="text-xs text-slate-500">Inc. Algo</p><p className="text-sm font-bold text-orange-400">+{fmt.k(dm.algoInc)}</p></div>
+                <div><p className="text-xs text-slate-500">Inc. Org.</p><p className="text-sm font-bold text-cyan-400">+{fmt.k(dm.orgInc)}</p></div>
+              </>
+            )}
           </div>
         </div>
         <StatCard label="Revenue Bruto Incremental" value={dm.noBaseline?"—":fmt.usd(dm.gross)} sub={dm.noBaseline?"Sin datos pre-DM":`${fmt.k(dm.incremental)} streams × $${track.royalty}/stream`} color="emerald" icon={DollarSign} />
@@ -2764,9 +2806,11 @@ const DMAuditTab = ({ track }) => {
           <div className="space-y-2">
             {[
               {label:"Revenue Bruto Incremental",value:dm.gross,color:"text-emerald-400",sign:"+"},
+              {label:`  Inc. Algorítmico (${Math.round((dm.algoRatio??0)*100)}%)`,value:dm.algoGross,color:"text-orange-400",sign:"+",sub:true},
+              {label:`  Inc. Orgánico (${100-Math.round((dm.algoRatio??0)*100)}%)`,value:dm.orgGross,color:"text-cyan-400",sign:"+",sub:true},
               {label:`Comisión Spotify (${commEff.toFixed(0)}% efectivo)`,value:dm.commission,color:"text-rose-400",sign:"−"},
               {label:"Revenue Neto DM",value:dm.net,color:(dm.net??0)>=0?"text-emerald-400":"text-rose-400",sign:(dm.net??0)>=0?"+":"",border:true},
-            ].map(row=>(
+            ].filter(r=>!r.sub||!dm.noBaseline).map(row=>(
               <div key={row.label} className={`flex items-center justify-between p-3 rounded-lg ${row.border?"bg-slate-800 border border-slate-700":"bg-slate-800/40"}`}>
                 <span className="text-xs text-slate-300">{row.border&&<CheckCircle size={11} className="inline mr-1 text-emerald-400" />}{row.label}</span>
                 <span className={`text-sm font-bold ${row.color}`}>{row.sign}{fmt.usd(row.value)}</span>
@@ -2781,27 +2825,42 @@ const DMAuditTab = ({ track }) => {
           </div>
         </div>
         <div className="bg-slate-900 rounded-xl border border-slate-800 p-5">
-          <h3 className="text-sm font-semibold text-slate-200 mb-4">Fuente de Streams</h3>
-          <div className="space-y-4">
-            {srcData.map(s=>(
-              <div key={s.name}>
-                <div className="flex justify-between text-xs mb-1.5"><span className="text-slate-400">{s.name}</span><span className="font-bold text-white">{s.value}%</span></div>
-                <div className="w-full bg-slate-800 rounded-full h-2">
-                  <div className="h-2 rounded-full" style={{width:`${s.value}%`,background:s.color}} />
+          <h3 className="text-sm font-semibold text-slate-200 mb-1">Fuente de Streams</h3>
+          <p className="text-xs text-slate-500 mb-4">Durante la campaña DM — datos reales S4A</p>
+          {(() => {
+            const algoP = Math.round((dm.algoRatio??0)*100);
+            const orgP  = 100 - algoP;
+            const realSrc = [
+              {name:"Algorítmico (programado)",value:algoP,color:"#f97316"},
+              {name:"Orgánico",value:orgP,color:"#10b981"},
+            ];
+            return (
+              <div className="space-y-4">
+                {realSrc.map(s=>(
+                  <div key={s.name}>
+                    <div className="flex justify-between text-xs mb-1.5"><span className="text-slate-400">{s.name}</span><span className="font-bold text-white">{s.value}%</span></div>
+                    <div className="w-full bg-slate-800 rounded-full h-2">
+                      <div className="h-2 rounded-full" style={{width:`${s.value}%`,background:s.color}} />
+                    </div>
+                  </div>
+                ))}
+                <div className="mt-2 p-3 bg-slate-800 rounded-xl border border-slate-700 space-y-1">
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs text-slate-400">Total streams campaña</span>
+                    <span className="text-sm font-bold text-white">{fmt.k(dm.observed)}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs text-orange-400">Algorítmico</span>
+                    <span className="text-sm font-bold text-orange-300">{fmt.k(dm.campProgObs)}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs text-cyan-400">Orgánico</span>
+                    <span className="text-sm font-bold text-cyan-300">{fmt.k(dm.campOrgObs)}</span>
+                  </div>
                 </div>
               </div>
-            ))}
-          </div>
-          <div className="mt-4 p-3 bg-slate-800 rounded-xl border border-slate-700">
-            <div className="flex justify-between items-center mb-1">
-              <span className="text-xs text-slate-400">Streams con comisión</span>
-              <span className="text-sm font-bold text-rose-300">{sources.editorial+sources.algorithmic}%</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-xs text-slate-400">Streams libres de comisión</span>
-              <span className="text-sm font-bold text-emerald-300">{sources.playlists+sources.profile}%</span>
-            </div>
-          </div>
+            );
+          })()}
         </div>
       </div>
       <div className="bg-slate-900 rounded-xl border border-slate-800 p-5">
