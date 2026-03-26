@@ -556,10 +556,13 @@ const appendForecast = (history, dmStart) => {
   const tStart = Math.max(0, dmStart - TRAIN_EXT);
   const trainRaw = history.slice(tStart, dmStart);
   if (trainRaw.length < 7) return history;
-  // Winsorize
+  // Winsorize; use ORGANIC streams (total − programmed) to avoid algo-boost inflation in forecast
   const sorted = [...trainRaw.map(d => d.streams)].sort((a,b) => a-b);
   const p97 = sorted[Math.min(Math.floor(sorted.length * 0.97), sorted.length-1)];
-  const train = trainRaw.map(d => ({ ...d, streams: Math.min(d.streams, p97) }));
+  const train = trainRaw.map(d => ({
+    ...d,
+    streams: Math.max(1, Math.min(d.streams, p97) - (d.programmedStreams ?? 0))
+  }));
   const lam = Math.log(2) / CFG.HALF_LIFE;
   const w = train.map((_, i) => Math.exp(-lam * (train.length - 1 - i)));
   const wSum = w.reduce((a,b) => a+b, 0);
@@ -585,9 +588,13 @@ const appendForecast = (history, dmStart) => {
   const dow7L = rawDow.map(c => (c-meanDow)*CFG.RIDGE);
   const resid = train.map((d,i) => logS[i]-(wMl+slopeL*(d.day-wMx)+dow7L[d.dow]));
   const stdR = Math.sqrt(resid.reduce((s,r)=>s+r*r,0)/resid.length);
-  const anchorStreams = history[dmStart-1]?.streams || Math.round(Math.exp(wMl)-1);
+  // Anchor on organic level (total − programmed) at last pre-DM day
+  const anchorPt = history[dmStart-1];
+  const anchorTotal = anchorPt?.streams || Math.round(Math.exp(wMl)-1);
+  const anchorProg  = anchorPt?.programmedStreams ?? 0;
+  const anchorStreams = Math.max(1, anchorTotal - anchorProg);
   const anchorL = Math.log(anchorStreams + 1);
-  const anchorDay = history[dmStart-1]?.day ?? history.at(-1).day;
+  const anchorDay = anchorPt?.day ?? history.at(-1).day;
   const lastPt = history.at(-1);
   const forecast = [];
   for (let i = 1; i <= CFG.FORECAST_DAYS; i++) {
@@ -940,7 +947,7 @@ const StatCard = ({ label, value, sub, color="slate", icon:Icon }) => {
   );
 };
 
-const Badge = ({ status }) => {
+const Badge = ({ status, endDate }) => {
   const map = {
     active:    {cls:CV.emerald.badge, label:"● DM Activo"},
     candidate: {cls:CV.purple.badge,  label:"◆ Candidato"},
@@ -948,7 +955,15 @@ const Badge = ({ status }) => {
   };
   if (!map[status]) return null;
   const {cls,label} = map[status];
-  return <span className={`text-xs px-2 py-0.5 rounded-full border font-medium whitespace-nowrap ${cls}`}>{label}</span>;
+  const dateStr = status === "completed" && endDate
+    ? (() => { const d = new Date(endDate + "T12:00:00"); return d.toLocaleDateString("es-AR",{day:"numeric",month:"short",year:"2-digit"}); })()
+    : null;
+  return (
+    <div className="flex flex-col items-end gap-0.5">
+      <span className={`text-xs px-2 py-0.5 rounded-full border font-medium whitespace-nowrap ${cls}`}>{label}</span>
+      {dateStr && <span className="text-[9px] text-amber-500/70 whitespace-nowrap">{dateStr}</span>}
+    </div>
+  );
 };
 
 // ════════════════════════════════════════════════════════════════
@@ -1684,7 +1699,7 @@ const DecayTab = ({ track, catalog }) => {
   const [viewMode, setViewMode] = useState("daily");
   const [showContext, setShowContext] = useState(false);
   const [showAlgo, setShowAlgo] = useState(false);
-  const { metrics, history, dmStart } = track;
+  const { metrics, history, dmStart, dmEnd } = track;
 
   // All hooks must be called unconditionally (Rules of Hooks)
   const withForecast = useMemo(()=> history?.length ? appendForecast(history, dmStart) : [], [history,dmStart]);
@@ -1713,7 +1728,7 @@ const DecayTab = ({ track, catalog }) => {
       return weeks;
     }
     return base;
-  },[withForecast,viewMode,lastActualIdx,track]);
+  },[withForecast,viewMode,lastActualIdx,track,showAlgo]);
 
   const totalLen = allChartData.length;
   const chartData = useMemo(()=>
@@ -1931,7 +1946,8 @@ const DecayTab = ({ track, catalog }) => {
       color:popC(pop.current),
     }] : []),
   ];
-  const dmLabel = dmStart!=null?allChartData[dmStart]?.label:null;
+  const dmLabel    = dmStart != null ? allChartData[dmStart]?.label : null;
+  const dmEndLabel = dmEnd   != null ? allChartData[dmEnd]?.label   : null;
   const forecastStartLabel = lastActualLabel;
   const forecastEndLabel = allChartData.at(-1)?.label;
   return (
@@ -1981,10 +1997,16 @@ const DecayTab = ({ track, catalog }) => {
               <Line dataKey="Baseline Orgánico" stroke="#a855f7" strokeWidth={2} dot={false} strokeDasharray="7 3" />
               <Line dataKey="Pronóstico" stroke="#a855f7" strokeWidth={1.5} dot={false} strokeDasharray="3 3" strokeOpacity={0.55} connectNulls={false} />
             </>}
+            {/* Post-DM completed period shading */}
+            {dmEndLabel && lastActualLabel && (
+              <ReferenceArea x1={dmEndLabel} x2={lastActualLabel} fill="#f59e0b" fillOpacity={0.04} />
+            )}
             {showAlgo&&<Line dataKey="Streams Algorítmicos" stroke="#f97316" strokeWidth={1.5} dot={false} connectNulls={false} strokeOpacity={0.85} />}
             <Line dataKey="Streams Reales" stroke="#10b981" strokeWidth={2.5} dot={false} connectNulls={false} activeDot={{r:4,fill:"#10b981",stroke:"#0f172a",strokeWidth:2}} />
             {dmLabel&&<ReferenceLine x={dmLabel} stroke="#a855f7" strokeWidth={1.5} strokeDasharray="4 4"
               label={{value:"DM ▶",position:"top",fontSize:10,fill:"#a855f7"}} />}
+            {dmEndLabel&&<ReferenceLine x={dmEndLabel} stroke="#f59e0b" strokeWidth={1.5} strokeDasharray="4 4"
+              label={{value:"◼ Fin DM",position:"top",fontSize:10,fill:"#f59e0b"}} />}
             {lastActualLabel&&<ReferenceLine x={lastActualLabel} stroke="#475569" strokeWidth={1} strokeDasharray="3 3"
               label={{value:"Hoy →",position:"insideTopRight",fontSize:9,fill:"#94a3b8"}} />}
           </ComposedChart>
@@ -2117,6 +2139,104 @@ const DecayTab = ({ track, catalog }) => {
             )}
           </div>
         )}
+
+        {/* ── Fuente de Streams — Algo % analysis ── */}
+        {(() => {
+          if (!history?.length) return null;
+          const hasProg = history.some(d => d.programmedStreams > 0);
+          if (!hasProg) return null;
+
+          // Recent 28d overall algo %
+          const recent28 = history.slice(-Math.min(28, history.length));
+          const recTotal = recent28.reduce((s,d)=>s+d.streams,0);
+          const recProg  = recent28.reduce((s,d)=>s+(d.programmedStreams??0),0);
+          const recAlgoPct = recTotal > 0 ? Math.round((recProg/recTotal)*100) : null;
+
+          // During DM algo %
+          let dmAlgoPct = null;
+          if (dmStart != null) {
+            const dmSlice = history.slice(dmStart, dmEnd ?? history.length);
+            const dmTotal = dmSlice.reduce((s,d)=>s+d.streams,0);
+            const dmProg  = dmSlice.reduce((s,d)=>s+(d.programmedStreams??0),0);
+            dmAlgoPct = dmTotal > 0 ? Math.round((dmProg/dmTotal)*100) : null;
+          }
+
+          // Post-DM algo % (only if completed)
+          let postAlgoPct = null, postAlgoDelta = null;
+          if (dmEnd != null && history.length > dmEnd) {
+            const postSlice = history.slice(dmEnd);
+            const postTotal = postSlice.reduce((s,d)=>s+d.streams,0);
+            const postProg  = postSlice.reduce((s,d)=>s+(d.programmedStreams??0),0);
+            postAlgoPct = postTotal > 0 ? Math.round((postProg/postTotal)*100) : null;
+            if (postAlgoPct != null && dmAlgoPct != null)
+              postAlgoDelta = postAlgoPct - dmAlgoPct;
+          }
+
+          const algoSignal = dmEnd != null
+            ? postAlgoDelta != null
+              ? postAlgoDelta > 3  ? { color:"emerald", text:`+${postAlgoDelta}pp post-DM — el algoritmo siguió traccionando orgánicamente` }
+                : postAlgoDelta < -5 ? { color:"rose",    text:`${postAlgoDelta}pp post-DM — la salida de DM redujo la exposición algorítmica` }
+                :                      { color:"amber",   text:"Estable post-DM — el algoritmo no cambió significativamente al salir" }
+              : null
+            : dmStart != null && dmAlgoPct != null
+              ? dmAlgoPct > 70 ? { color:"orange", text:"Alta dependencia algorítmica durante DM — monitorear caída al salir" }
+              : dmAlgoPct > 50 ? { color:"amber",  text:"Mix equilibrado: orgánico + algorítmico durante la campaña" }
+              :                  { color:"emerald", text:"Bajo % algorítmico — streams principalmente orgánicos durante DM" }
+            : null;
+
+          return (
+            <div className="bg-slate-800/30 rounded-xl p-3 border border-slate-700/50">
+              <p className="text-xs text-slate-500 font-semibold mb-2.5 uppercase tracking-wider flex items-center gap-1.5">
+                <Activity size={11} className="text-orange-400" />
+                Fuente de Streams · Algorítmico vs Orgánico
+              </p>
+              <div className={`grid gap-2 mb-2 ${dmEnd!=null ? "grid-cols-3" : dmStart!=null ? "grid-cols-2" : "grid-cols-1"}`}>
+                {recAlgoPct != null && (
+                  <div className="text-center bg-slate-900/50 rounded-lg py-2 px-1">
+                    <p className="text-lg font-black text-orange-400">{recAlgoPct}%</p>
+                    <p className="text-xs text-slate-500 mt-0.5">algorítmico hoy</p>
+                  </div>
+                )}
+                {dmAlgoPct != null && dmStart != null && (
+                  <div className="text-center bg-slate-900/50 rounded-lg py-2 px-1">
+                    <p className="text-lg font-black text-purple-400">{dmAlgoPct}%</p>
+                    <p className="text-xs text-slate-500 mt-0.5">algo durante DM</p>
+                  </div>
+                )}
+                {postAlgoPct != null && (
+                  <div className="text-center bg-slate-900/50 rounded-lg py-2 px-1">
+                    <p className={`text-lg font-black ${postAlgoDelta!=null&&postAlgoDelta>3?"text-emerald-400":postAlgoDelta!=null&&postAlgoDelta<-3?"text-rose-400":"text-amber-400"}`}>
+                      {postAlgoPct}%
+                      {postAlgoDelta!=null&&<span className="text-xs font-normal ml-1">({postAlgoDelta>0?"+":""}{postAlgoDelta}pp)</span>}
+                    </p>
+                    <p className="text-xs text-slate-500 mt-0.5">algo post-DM</p>
+                  </div>
+                )}
+              </div>
+              {/* Visual bar */}
+              {recAlgoPct != null && (
+                <div className="mb-2">
+                  <div className="flex h-1.5 rounded-full overflow-hidden bg-slate-700">
+                    <div style={{width:`${recAlgoPct}%`,background:"#f97316"}} className="transition-all" />
+                    <div style={{width:`${100-recAlgoPct}%`,background:"#10b981"}} />
+                  </div>
+                  <div className="flex justify-between mt-1 text-[9px] text-slate-600">
+                    <span className="text-orange-500/80">Algorítmico {recAlgoPct}%</span>
+                    <span className="text-emerald-500/80">Orgánico {100-recAlgoPct}%</span>
+                  </div>
+                </div>
+              )}
+              {algoSignal && (
+                <p className={`text-xs leading-snug ${
+                  algoSignal.color==="emerald"?"text-emerald-400/80":
+                  algoSignal.color==="orange"?"text-orange-400/80":
+                  algoSignal.color==="rose"?"text-rose-400/80":"text-amber-400/80"}`}>
+                  {algoSignal.text}
+                </p>
+              )}
+            </div>
+          );
+        })()}
 
         {/* ── Action cards ── */}
         <div className="grid grid-cols-3 gap-3">
@@ -2346,7 +2466,7 @@ const DMManagerTab = ({ catalog, onUpdateStatus, dmOverrides, onUpdateDM, onRemo
             <p className="text-xs font-semibold text-white leading-tight">{track.name}</p>
             <p className="text-[10px] text-slate-500 mt-0.5">{track.artist}</p>
           </div>
-          <Badge status={track.status} />
+          <Badge status={track.status} endDate={endDate} />
         </div>
 
         {/* Metrics row */}
