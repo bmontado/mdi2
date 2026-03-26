@@ -470,77 +470,83 @@ const buildHistoryFromReal = (tid, rawOverride = null) => {
 };
 
 // ════════════════════════════════════════════════════════════════
-//  EWLS BASELINE (Local-Level Anchored)
+//  EWLS BASELINE — dual model: total (DM lift) + organic (post-DM floor)
 // ════════════════════════════════════════════════════════════════
-const computeBaseline = (history, dmStart) => {
-  if (dmStart == null)
-    return history.map(d => ({ ...d, baseline:d.streams, ci_lo:d.streams, ci_hi:d.streams }));
-
-  // Extended 90-day training window for better seasonality coverage
-  const TRAIN_EXT = 90;
-  const tStart = Math.max(0, dmStart - TRAIN_EXT);
-  const trainRaw = history.slice(tStart, dmStart);
-  if (trainRaw.length < 7)
-    return history.map(d => ({ ...d, baseline:d.streams, ci_lo:d.streams, ci_hi:d.streams }));
-
-  // Winsorize spikes at 97th percentile before fitting
-  const sorted = [...trainRaw.map(d => d.streams)].sort((a,b) => a-b);
+// Helper: fit EWLS on an array of numeric values aligned to trainRaw
+const _fitEWLS = (trainRaw, streamVals) => {
+  const sorted = [...streamVals].sort((a,b) => a-b);
   const p97 = sorted[Math.min(Math.floor(sorted.length * 0.97), sorted.length-1)];
-  const train = trainRaw.map(d => ({ ...d, streams: Math.min(d.streams, p97) }));
-
-  // Exponential time-weighting (recent days matter more)
+  const capped = streamVals.map(v => Math.min(v, p97));
   const lam = Math.log(2) / CFG.HALF_LIFE;
-  const w = train.map((_, i) => Math.exp(-lam * (train.length - 1 - i)));
+  const w = trainRaw.map((_, i) => Math.exp(-lam * (trainRaw.length - 1 - i)));
   const wSum = w.reduce((a,b) => a+b, 0);
   const nw = w.map(x => x / wSum);
-
-  // ── Log-space EWLS (captures exponential catalog decay naturally) ──
-  const logS = train.map(d => Math.log(d.streams + 1));
-  const wMx  = train.reduce((s,d,i) => s + d.day * nw[i], 0);
-  const wMl  = logS.reduce((s,v,i) => s + v * nw[i], 0);       // weighted mean log-streams
-
-  // Fit slope only when we have enough data (>= 28 days); otherwise flat level
+  const logS = capped.map(v => Math.log(v + 1));
+  const wMx = trainRaw.reduce((s,d,i) => s + d.day * nw[i], 0);
+  const wMl = logS.reduce((s,v,i) => s + v * nw[i], 0);
   let slopeL = 0;
-  if (train.length >= 28) {
-    const num = train.reduce((s,d,i) => s + nw[i]*(d.day-wMx)*(logS[i]-wMl), 0);
-    const den = train.reduce((s,d,i) => s + nw[i]*(d.day-wMx)**2, 0);
+  if (trainRaw.length >= 28) {
+    const num = trainRaw.reduce((s,d,i) => s + nw[i]*(d.day-wMx)*(logS[i]-wMl), 0);
+    const den = trainRaw.reduce((s,d,i) => s + nw[i]*(d.day-wMx)**2, 0);
     slopeL = den > 0 ? num/den : 0;
-    // Cap: max ~5% per week in log-space (~0.007/day)
-    const maxSlopeL = 0.05 / 7;
+    const maxSlopeL = 0.05/7;
     slopeL = Math.max(-maxSlopeL, Math.min(maxSlopeL, slopeL));
   }
-
-  // DOW seasonality in log-space
   const dowS = new Array(7).fill(0), dowC = new Array(7).fill(0);
-  train.forEach((d,i) => {
+  trainRaw.forEach((d,i) => {
     const pred = wMl + slopeL*(d.day-wMx);
     dowS[d.dow] += (logS[i]-pred)*nw[i]; dowC[d.dow] += nw[i];
   });
   const rawDow = dowS.map((s,i) => dowC[i]>0 ? s/dowC[i] : 0);
   const meanDow = rawDow.reduce((a,b)=>a+b,0)/7;
   const dow7L = rawDow.map(c => (c-meanDow)*CFG.RIDGE);
-
-  // Anchor at the actual stream level just before DM start (in log-space)
-  const anchorStreams = history[dmStart-1]?.streams || Math.round(Math.exp(wMl)-1);
-  const anchorL = Math.log(anchorStreams + 1);
-  const anchorDay = history[dmStart-1]?.day ?? (dmStart-1);
-
-  // Residuals for CI
-  const resid = train.map((d,i) => {
-    const pred = wMl + slopeL*(d.day-wMx) + dow7L[d.dow];
-    return logS[i] - pred;
-  });
+  const resid = trainRaw.map((d,i) => logS[i]-(wMl+slopeL*(d.day-wMx)+dow7L[d.dow]));
   const stdR = Math.sqrt(resid.reduce((s,r)=>s+r*r,0)/resid.length);
+  return { wMl, slopeL, dow7L, stdR };
+};
+
+const computeBaseline = (history, dmStart) => {
+  if (dmStart == null)
+    return history.map(d => ({ ...d, baseline:d.streams, baselineOrg:d.streams, ci_lo:d.streams, ci_hi:d.streams }));
+
+  const TRAIN_EXT = 90;
+  const tStart = Math.max(0, dmStart - TRAIN_EXT);
+  const trainRaw = history.slice(tStart, dmStart);
+  if (trainRaw.length < 7)
+    return history.map(d => ({ ...d, baseline:d.streams, baselineOrg:d.streams, ci_lo:d.streams, ci_hi:d.streams }));
+
+  const anchorDay = history[dmStart-1]?.day ?? (dmStart-1);
+  const anchorPt  = history[dmStart-1];
+
+  // ── Modelo A: streams TOTALES → contrafactual DM (mide lift real) ──
+  const mTotal       = _fitEWLS(trainRaw, trainRaw.map(d => d.streams));
+  const anchorTotal  = anchorPt?.streams || Math.round(Math.exp(mTotal.wMl)-1);
+  const anchorTotalL = Math.log(anchorTotal + 1);
+
+  // ── Modelo B: streams ORGÁNICOS (total − programado) → piso post-DM ──
+  const orgVals    = trainRaw.map(d => Math.max(1, d.streams - (d.programmedStreams ?? 0)));
+  const mOrg       = _fitEWLS(trainRaw, orgVals);
+  const anchorOrg  = Math.max(1, (anchorPt?.streams||0) - (anchorPt?.programmedStreams??0))
+                     || Math.round(Math.exp(mOrg.wMl)-1);
+  const anchorOrgL = Math.log(anchorOrg + 1);
 
   return history.map((d,i) => {
     const dfa = d.day - anchorDay;
-    const blL = anchorL + slopeL*dfa + dow7L[d.dow];
-    const bl   = Math.max(Math.round(Math.exp(blL) - 1), Math.round(anchorStreams * 0.05));
+
+    // A: Contrafactual total (para DM revenue/lift)
+    const blL  = anchorTotalL + mTotal.slopeL*dfa + mTotal.dow7L[d.dow];
+    const bl   = Math.max(Math.round(Math.exp(blL) - 1), Math.round(anchorTotal * 0.05));
     const horizon = Math.max(0, i - dmStart);
-    const ci = CFG.CI * stdR * Math.sqrt(1 + horizon/train.length);
+    const ci   = CFG.CI * mTotal.stdR * Math.sqrt(1 + horizon/trainRaw.length);
+
+    // B: Piso orgánico (para forecast post-DM)
+    const blOrgL = anchorOrgL + mOrg.slopeL*dfa + mOrg.dow7L[d.dow];
+    const blOrg  = Math.max(Math.round(Math.exp(blOrgL) - 1), Math.round(anchorOrg * 0.05));
+
     return {
       ...d,
-      baseline: bl,
+      baseline:    bl,
+      baselineOrg: blOrg,
       ci_lo: Math.round(Math.max(Math.exp(blL - ci) - 1, 0)),
       ci_hi: Math.round(Math.exp(blL + ci) - 1),
     };
@@ -1711,10 +1717,14 @@ const DecayTab = ({ track, catalog }) => {
     const popLookup = track.popMetrics?.lookup ?? {};
     const base = withForecast.map((d,i)=>({
       label:d.label,
-      "Streams Reales": d.isForecast ? null : d.streams,
+      "Streams Reales":       d.isForecast ? null : d.streams,
       "Streams Algorítmicos": (!d.isForecast && showAlgo) ? (d.programmedStreams ?? 0) : null,
-      "Baseline Orgánico": d.isForecast ? null : d.baseline,
-      "Pronóstico": (d.isForecast || i===lastActualIdx) ? d.baseline : null,
+      // Modelo A: contrafactual total (qué hubiera pasado sin DM) — para medir lift
+      "Contrafactual DM":     (!d.isForecast && dmStart != null) ? d.baseline : null,
+      // Modelo B: piso orgánico — conecta con el pronóstico post-DM
+      "Piso Orgánico":        (!d.isForecast && dmStart != null) ? d.baselineOrg : null,
+      // Pronóstico arranca desde el piso orgánico en el último día real y continúa
+      "Pronóstico":           d.isForecast ? d.baseline : (i===lastActualIdx && dmStart!=null ? d.baselineOrg : null),
       "CI Superior":d.ci_hi, "CI Inferior":d.ci_lo,
       "Popularity": (!d.isForecast && d.date && popLookup[d.date] !== undefined) ? popLookup[d.date] : null,
     }));
@@ -1723,7 +1733,16 @@ const DecayTab = ({ track, catalog }) => {
       for(let i=0;i<base.length;i+=7){
         const chunk=base.slice(i,i+7);
         const agg=k=>{ const vals=chunk.map(d=>d[k]).filter(v=>v!=null); return vals.length?Math.round(vals.reduce((s,v)=>s+v,0)/vals.length):null; };
-        weeks.push({label:chunk[0]?.label,"Streams Reales":agg("Streams Reales"),"Streams Algorítmicos":agg("Streams Algorítmicos"),"Baseline Orgánico":agg("Baseline Orgánico"),"Pronóstico":agg("Pronóstico"),"CI Superior":agg("CI Superior"),"CI Inferior":agg("CI Inferior"),"Popularity":agg("Popularity")});
+        weeks.push({label:chunk[0]?.label,
+          "Streams Reales":agg("Streams Reales"),
+          "Streams Algorítmicos":agg("Streams Algorítmicos"),
+          "Contrafactual DM":agg("Contrafactual DM"),
+          "Piso Orgánico":agg("Piso Orgánico"),
+          "Pronóstico":agg("Pronóstico"),
+          "CI Superior":agg("CI Superior"),
+          "CI Inferior":agg("CI Inferior"),
+          "Popularity":agg("Popularity"),
+        });
       }
       return weeks;
     }
@@ -1959,7 +1978,11 @@ const DecayTab = ({ track, catalog }) => {
         <div className="flex items-center justify-between mb-4">
           <div>
             <h3 className="text-sm font-semibold text-slate-200">Decay Intelligence Chart — {track.name}</h3>
-            <p className="text-xs text-slate-500 mt-0.5">Log-EWLS · Ventana 90d · Winsorizado P97 · DOW estacional · IC 95% · +{CFG.FORECAST_DAYS}d pronóstico</p>
+            <p className="text-xs text-slate-500 mt-0.5">
+              <span className="text-purple-400/70">━━</span> Contrafactual DM (lift) &nbsp;·&nbsp;
+              <span className="text-cyan-400/70">╌╌</span> Piso Orgánico (post-DM) &nbsp;·&nbsp;
+              Log-EWLS · 90d · P97 · DOW · +{CFG.FORECAST_DAYS}d
+            </p>
           </div>
           <div className="flex items-center gap-2">
             {dmStart!=null&&(
@@ -1994,8 +2017,12 @@ const DecayTab = ({ track, catalog }) => {
             {dmStart!=null&&<>
               <Line dataKey="CI Superior" stroke="#a855f7" strokeWidth={1} dot={false} strokeDasharray="2 4" strokeOpacity={0.35} legendType="none" />
               <Line dataKey="CI Inferior" stroke="#a855f7" strokeWidth={1} dot={false} strokeDasharray="2 4" strokeOpacity={0.35} legendType="none" />
-              <Line dataKey="Baseline Orgánico" stroke="#a855f7" strokeWidth={2} dot={false} strokeDasharray="7 3" />
-              <Line dataKey="Pronóstico" stroke="#a855f7" strokeWidth={1.5} dot={false} strokeDasharray="3 3" strokeOpacity={0.55} connectNulls={false} />
+              {/* Modelo A: contrafactual DM — trayectoria total sin DM (para medir lift) */}
+              <Line dataKey="Contrafactual DM" stroke="#a855f7" strokeWidth={2} dot={false} strokeDasharray="7 3" />
+              {/* Modelo B: piso orgánico — qué esperar post-DM (sin componente algo) */}
+              <Line dataKey="Piso Orgánico" stroke="#06b6d4" strokeWidth={1.5} dot={false} strokeDasharray="4 4" strokeOpacity={0.75} />
+              {/* Pronóstico conecta desde el piso orgánico hacia adelante */}
+              <Line dataKey="Pronóstico" stroke="#06b6d4" strokeWidth={1.5} dot={false} strokeDasharray="3 3" strokeOpacity={0.55} connectNulls={false} />
             </>}
             {/* Post-DM completed period shading */}
             {dmEndLabel && lastActualLabel && (
