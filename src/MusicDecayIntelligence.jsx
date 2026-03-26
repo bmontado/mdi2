@@ -502,7 +502,7 @@ const _fitEWLS = (trainRaw, streamVals) => {
   const dow7L = rawDow.map(c => (c-meanDow)*CFG.RIDGE);
   const resid = trainRaw.map((d,i) => logS[i]-(wMl+slopeL*(d.day-wMx)+dow7L[d.dow]));
   const stdR = Math.sqrt(resid.reduce((s,r)=>s+r*r,0)/resid.length);
-  return { wMl, slopeL, dow7L, stdR };
+  return { wMl, wMx, slopeL, dow7L, stdR };
 };
 
 const computeBaseline = (history, dmStart) => {
@@ -515,33 +515,24 @@ const computeBaseline = (history, dmStart) => {
   if (trainRaw.length < 7)
     return history.map(d => ({ ...d, baseline:d.streams, baselineOrg:d.streams, ci_lo:d.streams, ci_hi:d.streams }));
 
-  const anchorDay = history[dmStart-1]?.day ?? (dmStart-1);
-  const anchorPt  = history[dmStart-1];
-
   // ── Modelo A: streams TOTALES → contrafactual DM (mide lift real) ──
-  const mTotal       = _fitEWLS(trainRaw, trainRaw.map(d => d.streams));
-  const anchorTotal  = anchorPt?.streams || Math.round(Math.exp(mTotal.wMl)-1);
-  const anchorTotalL = Math.log(anchorTotal + 1);
+  // Uses smooth EWLS prediction (no anchor-pin) to avoid contamination from DM pre-ramp days
+  const mTotal  = _fitEWLS(trainRaw, trainRaw.map(d => d.streams));
 
   // ── Modelo B: streams ORGÁNICOS (total − programado) → piso post-DM ──
-  const orgVals    = trainRaw.map(d => Math.max(1, d.streams - (d.programmedStreams ?? 0)));
-  const mOrg       = _fitEWLS(trainRaw, orgVals);
-  const anchorOrg  = Math.max(1, (anchorPt?.streams||0) - (anchorPt?.programmedStreams??0))
-                     || Math.round(Math.exp(mOrg.wMl)-1);
-  const anchorOrgL = Math.log(anchorOrg + 1);
+  const orgVals = trainRaw.map(d => Math.max(1, d.streams - (d.programmedStreams ?? 0)));
+  const mOrg    = _fitEWLS(trainRaw, orgVals);
 
   return history.map((d,i) => {
-    const dfa = d.day - anchorDay;
-
-    // A: Contrafactual total (para DM revenue/lift)
-    const blL  = anchorTotalL + mTotal.slopeL*dfa + mTotal.dow7L[d.dow];
-    const bl   = Math.max(Math.round(Math.exp(blL) - 1), Math.round(anchorTotal * 0.05));
+    // A: Contrafactual total (para DM revenue/lift) — smooth prediction from EWLS centroid
+    const blL  = mTotal.wMl + mTotal.slopeL*(d.day - mTotal.wMx) + mTotal.dow7L[d.dow];
+    const bl   = Math.max(Math.round(Math.exp(blL) - 1), Math.round(Math.exp(mTotal.wMl) * 0.05));
     const horizon = Math.max(0, i - dmStart);
     const ci   = CFG.CI * mTotal.stdR * Math.sqrt(1 + horizon/trainRaw.length);
 
-    // B: Piso orgánico (para forecast post-DM)
-    const blOrgL = anchorOrgL + mOrg.slopeL*dfa + mOrg.dow7L[d.dow];
-    const blOrg  = Math.max(Math.round(Math.exp(blOrgL) - 1), Math.round(anchorOrg * 0.05));
+    // B: Piso orgánico (para forecast post-DM) — smooth organic prediction
+    const blOrgL = mOrg.wMl + mOrg.slopeL*(d.day - mOrg.wMx) + mOrg.dow7L[d.dow];
+    const blOrg  = Math.max(Math.round(Math.exp(blOrgL) - 1), Math.round(Math.exp(mOrg.wMl) * 0.05));
 
     return {
       ...d,
