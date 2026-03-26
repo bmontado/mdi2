@@ -404,15 +404,8 @@ const _dedupedTracks = (() => {
     group.sort((a, b) => peak(b) - peak(a));
     const main = group[0];
 
-    // Sumar streams con dedup por magnitud:
-    // si un track tiene avg similar al principal (>50%), es el mismo conteo → no sumar
-    const _avg = (id) => {
-      const s = RAW_STREAM_DATA[id]?.streams;
-      if (!s || s.length === 0) return 0;
-      const slice = s.slice(-Math.min(30, s.length));
-      return slice.reduce((a,b) => a+b, 0) / slice.length;
-    };
-    const mainAvg = _avg(main.id);
+    // Cada Spotify ID es una grabación distinta — no sumar entradas secundarias.
+    // Usamos sólo el track principal (mayor peak reciente); el fingerprint evita data duplicada.
     // Fingerprint para detectar duplicados exactos (misma data reportada distinto ID)
     const _fp = (id) => {
       const s = RAW_STREAM_DATA[id]?.streams ?? [];
@@ -423,9 +416,9 @@ const _dedupedTracks = (() => {
     for (const t of group) {
       const raw = RAW_STREAM_DATA[t.id];
       if (!raw) continue;
-      const tAvg = _avg(t.id);
-      // Excluir si tiene magnitud similar al principal (mismo conteo reportado distinto)
-      if (t.id !== main.id && mainAvg > 0 && tAvg > mainAvg * 0.5) continue;
+      // Cada Spotify ID es una grabación distinta — nunca sumar entradas secundarias.
+      // Sólo se procesa el track principal (el de mayor peak reciente).
+      if (t.id !== main.id) continue;
       // Excluir duplicados exactos (mismo fingerprint ya incluido)
       const fp = _fp(t.id);
       if (seenFp.has(fp)) continue;
