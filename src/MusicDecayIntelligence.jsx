@@ -3135,7 +3135,6 @@ const DMAuditTab = ({ track }) => {
         </div>
       )}
     </div>
-  </div>
   );
 };
 
