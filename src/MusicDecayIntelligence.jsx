@@ -352,12 +352,15 @@ const TRACKS_CFG = [
   // ── NTVG 2 catalog ──
   ...Object.entries(RAW_STREAM_DATA).map(([id, t]) => {
     const dm = _DM_CONFIG[id] || {};
+    // DM siempre entra el 1ero de cada mes — snap índice al 1ero si no lo es
+    const rawStart = dm.dmStart ?? null;
+    const rawEnd   = dm.dmEnd   ?? null;
     return {
-      id, name: t.name, artist: t.artist ?? "NTVG 2",
+      id, name: t.name, artist: t.artist ?? "Downtown",
       genre: "Rock Alternativo", royalty: 0.0011,
       status:  dm.status  ?? "none",
-      dmStart: dm.dmStart ?? null,
-      dmEnd:   dm.dmEnd   ?? null,
+      dmStart: _snapTo1st(rawStart, t.dates),
+      dmEnd:   _snapTo1st(rawEnd,   t.dates),
       sources: { editorial: 20, algorithmic: 42, playlists: 25, profile: 13 },
     };
   }),
@@ -389,13 +392,29 @@ const TRACKS_CFG = [
       if (dmResumeIdx === -1) dmResumeIdx = null;
     }
     return {
-      id, name: t.name, artist: "Florece",
+      id, name: t.name, artist: "DPR",
       genre: "Rock Alternativo", royalty: 0.0011,
       status, dmStart, dmEnd, dmPauseIdx, dmResumeIdx,
       sources: { editorial: 20, algorithmic: 42, playlists: 25, profile: 13 },
     };
   }),
 ];
+
+// ── Snaps a day-index to the 1st of its month (DM siempre entra el 1ero) ───
+const _snapTo1st = (idx, dates) => {
+  if (idx == null || !dates?.length || idx >= dates.length) return idx;
+  const date = new Date(dates[idx] + "T12:00:00");
+  if (date.getDate() === 1) return idx; // ya es el 1ero
+  // Buscar el 1ero de ese mes
+  const firstStr = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-01`;
+  const found = dates.indexOf(firstStr);
+  if (found !== -1) return found;
+  // Si no hay datos del 1ero de ese mes, intentar el 1ero del mes siguiente
+  const nextMonth = new Date(date.getFullYear(), date.getMonth()+1, 1);
+  const nextStr = nextMonth.toISOString().slice(0,10);
+  const foundNext = dates.indexOf(nextStr);
+  return foundNext !== -1 ? foundNext : idx;
+};
 
 // ── Helpers de limpieza ───────────────────────────────────────────
 
@@ -797,11 +816,20 @@ const buildCatalog = (liveData = {}) => TRACKS_CFG.map(cfg => {
     const campAlgoAvg = camp.length > 0 ? campProgObs / camp.length : 0;
     const algoDelta = preDmAlgoAvg > 0 ? +((campAlgoAvg / preDmAlgoAvg - 1) * 100).toFixed(1) : null;
     const algoDeltaAbs = Math.round(campAlgoAvg - preDmAlgoAvg);
+    // Canibalización: streams que pasaron de orgánico a algorítmico sin crecer el total
+    const preDmTotalAvg = preDmSlice.length > 0
+      ? preDmSlice.reduce((s,d) => s + d.streams, 0) / preDmSlice.length : 0;
+    const campTotalAvg = camp.length > 0 ? obs / camp.length : 0;
+    const algoGrowthPerDay = campAlgoAvg - preDmAlgoAvg;
+    const totalGrowthPerDay = campTotalAvg - preDmTotalAvg;
+    const cannibalizedPerDay = Math.max(0, algoGrowthPerDay - Math.max(0, totalGrowthPerDay));
+    const cannibalized = Math.round(cannibalizedPerDay * camp.length);
+    const cannibalizationCost = cannibalized > 0 ? +(cannibalized * cfg.royalty * CFG.DM_CUT).toFixed(2) : 0;
     const gross = hasBaseline ? inc * cfg.royalty : null;
     const algoGross = algoInc != null ? +(algoInc * cfg.royalty).toFixed(2) : null;
     const orgGross  = orgInc  != null ? +(orgInc  * cfg.royalty).toFixed(2) : null;
-    // Discovery Mode cobra 30% sobre todos los streams incrementales generados
-    const comm = gross != null ? gross * CFG.DM_CUT : null;
+    // Discovery Mode cobra 30% sobre TODOS los streams algorítmicos (no solo incrementales)
+    const comm = +(campProgObs * cfg.royalty * CFG.DM_CUT).toFixed(2);
     // Post-DM: compare avg streams during DM vs after leaving DM (completed tracks only)
     const postDmSlice = cfg.dmEnd != null ? history.slice(cfg.dmEnd) : [];
     const dmAvg      = camp.length > 0 ? +(obs / camp.length).toFixed(0) : null;
@@ -811,12 +839,42 @@ const buildCatalog = (liveData = {}) => TRACKS_CFG.map(cfg => {
     const postDmDelta = (postDmAvg != null && dmAvg != null && dmAvg > 0)
       ? +((postDmAvg / dmAvg - 1) * 100).toFixed(1)
       : null;
+    // net = gross revenue (incremental) minus commission on ALL algo streams
+    const net = gross != null ? +(gross - comm).toFixed(2) : null;
+    // Per-period stats for multi-period DM (pause/resume)
+    let dmPeriods = null;
+    if (cfg.dmPauseIdx != null && cfg.dmResumeIdx != null) {
+      const _periodStats = (campSlice) => {
+        if (!campSlice.length) return null;
+        const obsP = campSlice.reduce((s,d) => s + d.streams, 0);
+        const blP  = campSlice.reduce((s,d) => s + (d.baseline ?? d.streams), 0);
+        const incP = obsP - blP;
+        const progP = campSlice.reduce((s,d) => s + (d.programmedStreams ?? 0), 0);
+        const commP = +(progP * cfg.royalty * CFG.DM_CUT).toFixed(2);
+        const grossP = hasBaseline ? +(incP * cfg.royalty).toFixed(2) : null;
+        const netP = grossP != null ? +(grossP - commP).toFixed(2) : null;
+        const liftP = hasBaseline && blP > 0 ? +((incP/blP)*100).toFixed(1) : null;
+        return { obs: obsP, inc: Math.round(incP), liftPct: liftP, net: netP, days: campSlice.length };
+      };
+      const camp1 = history.slice(cfg.dmStart, cfg.dmPauseIdx);
+      const camp2 = history.slice(cfg.dmResumeIdx, cfg.dmEnd ?? history.length);
+      dmPeriods = [
+        { period: 1, status: "completed",
+          startDate: history[cfg.dmStart]?.date,
+          endDate:   history[cfg.dmPauseIdx - 1]?.date ?? history[cfg.dmPauseIdx]?.date,
+          ..._periodStats(camp1) },
+        { period: 2, status: "active",
+          startDate: history[cfg.dmResumeIdx]?.date,
+          endDate:   cfg.dmEnd != null ? history[cfg.dmEnd - 1]?.date : null,
+          ..._periodStats(camp2) },
+      ].filter(p => p.obs != null);
+    }
     dm = {
       liftPct:     hasBaseline && bl>0 ? +((inc/bl)*100).toFixed(1) : null,
       incremental: hasBaseline ? Math.round(inc) : null,
       gross:       gross != null ? +gross.toFixed(2) : null,
-      commission:  comm != null ? +comm.toFixed(2) : null,
-      net:         (gross != null && comm != null) ? +(gross-comm).toFixed(2) : null,
+      commission:  +comm.toFixed(2),
+      net,
       observed: obs, baseline: bl,
       campProgObs, campOrgObs, algoRatio: +algoRatio.toFixed(3),
       algoInc, orgInc, algoGross, orgGross,
@@ -824,6 +882,8 @@ const buildCatalog = (liveData = {}) => TRACKS_CFG.map(cfg => {
       noBaseline: !hasBaseline,
       dmAvg, postDmAvg, postDmDelta,
       pausedDays, pausedStreams,
+      cannibalized, cannibalizationCost,
+      dmPeriods,
     };
   }
   // Auto-detect candidatos: tracks con decay real y volumen suficiente
@@ -1167,7 +1227,7 @@ const DynamicIsland = ({ track, isTrackTab, totalTracks }) => {
 // ════════════════════════════════════════════════════════════════
 //  SIDEBAR
 // ════════════════════════════════════════════════════════════════
-const ARTISTS = ["NTVG", "NTVG 2", "Florece", "Zeballos"];
+const ARTISTS = ["NTVG", "Downtown", "DPR", "Zeballos"];
 
 const Sidebar = ({ tracks, selectedId, onSelect, search, onSearch, filter, onFilter, artist, onArtist }) => {
   const [sortBy, setSortBy] = useState("streams");
@@ -1409,7 +1469,7 @@ const DashboardTab = ({ tracks, onSelectTrack }) => {
   return (
     <div className="p-5 space-y-5">
       <div className="grid grid-cols-4 gap-4">
-        <StatCard label="Total Streams/Día" value={fmt.k(totalStreams)} sub={`${tracks.length} tracks — NTVG 2`} color="slate" icon={Activity} />
+        <StatCard label="Total Streams/Día" value={fmt.k(totalStreams)} sub={`${tracks.length} tracks — NTVG`} color="slate" icon={Activity} />
         <StatCard label="Campañas DM Activas" value={activeDM.length} sub={`${candidates.length} candidatos listos`} color="purple" icon={Zap} />
         <StatCard label="Revenue Neto DM" value={fmt.usd(totalNet)} sub="Tras comisión Spotify 30%" color="emerald" icon={DollarSign} />
         <StatCard label="Candidatos DM" value={candidates.length} sub="Alta estabilidad · Organic Floor" color="amber" icon={Target} />
@@ -2767,13 +2827,59 @@ const DMManagerTab = ({ catalog, onUpdateStatus, dmOverrides, onUpdateDM, onRemo
                 </tr>
               </thead>
               <tbody>
-                {[...active, ...completed].map(t => {
+                {[...active, ...completed].flatMap(t => {
                   const c = campaignFor(t.id);
+                  // Multi-period DM (e.g. En Llamas): render one row per period
+                  if (t.dm?.dmPeriods?.length > 0) {
+                    return t.dm.dmPeriods.map((p, pi) => {
+                      const pDays = p.startDate && p.endDate
+                        ? Math.round((new Date(p.endDate) - new Date(p.startDate)) / 86400000)
+                        : p.startDate ? Math.round((new Date() - new Date(p.startDate)) / 86400000) : p.days ?? null;
+                      const pIsActive = p.status === "active";
+                      return (
+                        <tr key={`${t.id}-p${p.period}`} className="border-b border-slate-800/40 hover:bg-slate-800/30 transition-colors">
+                          <td className="py-2.5 pr-4">
+                            <p className="text-slate-200 font-medium">{t.name}</p>
+                            <p className="text-slate-600 text-xs">{t.artist} · Período {p.period}</p>
+                          </td>
+                          <td className="py-2.5 pr-4">
+                            {pIsActive
+                              ? <span className="text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full text-xs">● Activa</span>
+                              : <span className="text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-full text-xs">✓ Completada</span>}
+                          </td>
+                          <td className="py-2.5 pr-4 text-slate-400 tabular-nums">{p.startDate || <span className="text-slate-700">—</span>}</td>
+                          <td className="py-2.5 pr-4 text-slate-400 tabular-nums">{p.endDate || (pIsActive ? <span className="text-emerald-600 text-xs">en curso</span> : <span className="text-slate-700">—</span>)}</td>
+                          <td className="py-2.5 pr-4 text-slate-400 tabular-nums">{pDays != null ? `${pDays}d` : <span className="text-slate-700">—</span>}</td>
+                          <td className="py-2.5 pr-4">
+                            {p.liftPct != null
+                              ? <span className={`font-bold ${p.liftPct>=0?"text-emerald-400":"text-rose-400"}`}>{p.liftPct>=0?"+":""}{p.liftPct}%</span>
+                              : <span className="text-slate-700">—</span>}
+                          </td>
+                          <td className="py-2.5 pr-4">
+                            {p.net != null
+                              ? <span className={`font-semibold ${p.net>=0?"text-emerald-400":"text-rose-400"}`}>{fmt.usd(p.net)}</span>
+                              : <span className="text-slate-700">—</span>}
+                          </td>
+                          <td className="py-2.5 pr-4 text-slate-400 tabular-nums">{fmt.k(t.metrics?.avgStreams??0)}</td>
+                          <td className="py-2.5 pr-4 text-slate-500 italic max-w-[160px] truncate">{pi===0 ? (c.note || <span className="text-slate-700">—</span>) : <span className="text-slate-700">—</span>}</td>
+                          <td className="py-2.5">
+                            {pIsActive && (
+                              <button onClick={()=>handleComplete(t)}
+                                className="text-xs text-amber-500 hover:text-amber-400 border border-amber-700/40 hover:border-amber-500/60 px-2 py-0.5 rounded transition-colors">
+                                Completar
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    });
+                  }
+                  // Single-period DM track (standard)
                   const days = c.startDate && c.endDate
                     ? Math.round((new Date(c.endDate) - new Date(c.startDate)) / 86400000)
                     : c.startDate ? Math.round((new Date() - new Date(c.startDate)) / 86400000) : null;
                   const isActive = t.status === "active";
-                  return (
+                  return [(
                     <tr key={t.id} className="border-b border-slate-800/40 hover:bg-slate-800/30 transition-colors">
                       <td className="py-2.5 pr-4">
                         <p className="text-slate-200 font-medium">{t.name}</p>
@@ -2794,7 +2900,7 @@ const DMManagerTab = ({ catalog, onUpdateStatus, dmOverrides, onUpdateDM, onRemo
                       </td>
                       <td className="py-2.5 pr-4">
                         {t.dm?.net != null
-                          ? <span className="text-emerald-400 font-semibold">{fmt.usd(t.dm.net)}</span>
+                          ? <span className={`font-semibold ${t.dm.net>=0?"text-emerald-400":"text-rose-400"}`}>{fmt.usd(t.dm.net)}</span>
                           : <span className="text-slate-700">—</span>}
                       </td>
                       <td className="py-2.5 pr-4 text-slate-400 tabular-nums">{fmt.k(t.metrics?.avgStreams??0)}</td>
@@ -2814,7 +2920,7 @@ const DMManagerTab = ({ catalog, onUpdateStatus, dmOverrides, onUpdateDM, onRemo
                         )}
                       </td>
                     </tr>
-                  );
+                  )];
                 })}
               </tbody>
               {/* Totals footer */}
@@ -2913,7 +3019,7 @@ const DMAuditTab = ({ track }) => {
       </div>
     </div>
   );
-  const commEff = ((sources.editorial+sources.algorithmic)/100)*30;
+  const commEff = (dm.algoRatio ?? 0) * 100; // comisión 30% sobre % de streams algorítmicos
   const liftC = dm.noBaseline?"slate":dm.liftPct>40?"emerald":dm.liftPct>15?"amber":"rose";
   const srcData=[
     {name:"Editorial",value:sources.editorial,color:"#a855f7"},
@@ -2969,7 +3075,7 @@ const DMAuditTab = ({ track }) => {
             {[
               ["Observado",fmt.exact(dm.observed),"text-white"],
               ["Baseline",dm.noBaseline?"—":fmt.exact(dm.baseline),"text-purple-300"],
-              ["Incremental",dm.noBaseline?"—":`+${fmt.exact(dm.incremental)}`,"text-emerald-400"],
+              ["Incremental",dm.noBaseline?"—":`${(dm.incremental??0)>=0?"+":""}${fmt.exact(dm.incremental)}`,(dm.incremental??0)>=0?"text-emerald-400":"text-rose-400"],
             ].map(([l,v,c])=>(
               <div key={l}><p className="text-xs text-slate-500">{l}</p><p className={`text-sm font-bold ${c}`}>{v}</p></div>
             ))}
@@ -3021,22 +3127,26 @@ const DMAuditTab = ({ track }) => {
           <h3 className="text-sm font-semibold text-slate-200 mb-4">Waterfall de Revenue</h3>
           <div className="space-y-2">
             {[
-              {label:"Revenue Bruto Incremental",value:dm.gross,color:(dm.gross??0)>=0?"text-emerald-400":"text-rose-400",sign:(dm.gross??0)>=0?"+":""},
-              {label:`  Inc. Algorítmico (${Math.round((dm.algoRatio??0)*100)}%)`,value:dm.algoGross,color:(dm.algoGross??0)>=0?"text-orange-400":"text-rose-400",sign:(dm.algoGross??0)>=0?"+":"",sub:true},
-              {label:`  Inc. Orgánico (${100-Math.round((dm.algoRatio??0)*100)}%)`,value:dm.orgGross,color:(dm.orgGross??0)>=0?"text-cyan-400":"text-rose-400",sign:(dm.orgGross??0)>=0?"+":"",sub:true},
-              {label:`Comisión Spotify (${commEff.toFixed(0)}% efectivo)`,value:dm.commission,color:"text-rose-400",sign:"−"},
-              {label:"Revenue Neto DM",value:dm.net,color:(dm.net??0)>=0?"text-emerald-400":"text-rose-400",sign:(dm.net??0)>=0?"+":"",border:true},
+              {label:"Revenue Bruto Incremental",value:dm.gross,color:(dm.gross??0)>=0?"text-emerald-400":"text-rose-400",sign:(dm.gross??0)>=0?"+":"−"},
+              {label:`  Inc. Algorítmico (${Math.round((dm.algoRatio??0)*100)}%)`,value:dm.algoGross,color:(dm.algoGross??0)>=0?"text-orange-400":"text-rose-400",sign:(dm.algoGross??0)>=0?"+":"−",sub:true},
+              {label:`  Inc. Orgánico (${100-Math.round((dm.algoRatio??0)*100)}%)`,value:dm.orgGross,color:(dm.orgGross??0)>=0?"text-cyan-400":"text-rose-400",sign:(dm.orgGross??0)>=0?"+":"−",sub:true},
+              {label:`Comisión sobre streams algorítmicos (${commEff.toFixed(1)}% × 30%)`,value:dm.commission,color:"text-rose-400",sign:"−"},
+              ...(dm.cannibalized > 0 ? [{
+                label:`Canibalización: ${fmt.exact(dm.cannibalized)} streams org→algo sin crecimiento total`,
+                value:dm.cannibalizationCost,color:"text-amber-400",sign:"−",cannibal:true,
+              }] : []),
+              {label:"Revenue Neto DM",value:dm.net,color:(dm.net??0)>=0?"text-emerald-400":"text-rose-400",sign:(dm.net??0)>=0?"+":"−",border:true},
             ].filter(r=>!r.sub||!dm.noBaseline).map(row=>(
-              <div key={row.label} className={`flex items-center justify-between p-3 rounded-lg ${row.border?"bg-slate-800 border border-slate-700":"bg-slate-800/40"}`}>
-                <span className="text-xs text-slate-300">{row.border&&<CheckCircle size={11} className="inline mr-1 text-emerald-400" />}{row.label}</span>
+              <div key={row.label} className={`flex items-center justify-between p-3 rounded-lg ${row.border?"bg-slate-800 border border-slate-700":row.cannibal?"bg-amber-500/5 border border-amber-500/15":"bg-slate-800/40"}`}>
+                <span className="text-xs text-slate-300">{row.border&&<CheckCircle size={11} className="inline mr-1 text-emerald-400" />}{row.cannibal&&<AlertTriangle size={11} className="inline mr-1 text-amber-400" />}{row.label}</span>
                 <span className={`text-sm font-bold ${row.color}`}>{row.sign}{fmt.usd(row.value)}</span>
               </div>
             ))}
           </div>
-          <div className="mt-3 bg-amber-500/5 border border-amber-500/20 rounded-lg p-3">
-            <p className="text-xs text-amber-400 leading-relaxed">
-              <AlertTriangle size={11} className="inline mr-1" />
-              Comisión 30% aplica solo a Editorial ({sources.editorial}%) y Algorítmico ({sources.algorithmic}%) = {commEff.toFixed(0)}% tasa efectiva.
+          <div className="mt-3 bg-slate-800/60 border border-slate-700/50 rounded-lg p-3">
+            <p className="text-xs text-slate-400 leading-relaxed">
+              <AlertTriangle size={11} className="inline mr-1 text-amber-400" />
+              Comisión 30% aplica a <strong className="text-orange-400">todos los streams algorítmicos</strong> ({fmt.exact(dm.campProgObs)} streams × ${track.royalty}/stream × 30%). Canibalización ocurre cuando el algo crece pero el total no aumenta (oyentes redirigidos de orgánico a canal pago).
             </p>
           </div>
         </div>
@@ -3417,7 +3527,7 @@ const ChartmetricModal = ({ onClose, onSync }) => {
     if (!accessToken) return;
     setSearchStatus(s => ({...s, [cfg.id]:"loading"}));
     try {
-      const results = await cmSearchTrack(accessToken, `${cfg.name ?? cfg.id} NTVG 2`);
+      const results = await cmSearchTrack(accessToken, `${cfg.name ?? cfg.id} NTVG`);
       if (results.length > 0) {
         const match = results[0];
         setTrackIds(m => ({...m, [cfg.id]: String(match.id ?? match.cm_track ?? "")}));
@@ -3441,7 +3551,7 @@ const ChartmetricModal = ({ onClose, onSync }) => {
         setSyncLog(l => [...l, `↓ Fetching ${cfg.id} (CM ${cmId})…`]);
         const raw = RAW_STREAM_DATA[cfg.id] ?? RAW_STREAM_DATA_FLORECE[cfg.id];
         const result = await cmFetchStreams(accessToken, cmId, since, until);
-        liveData[cfg.id] = { name: raw?.name ?? cfg.id, artist: raw?.artist ?? "Florece", ...result };
+        liveData[cfg.id] = { name: raw?.name ?? cfg.id, artist: raw?.artist ?? "DPR", ...result };
         setSyncLog(l => [...l, `✓ ${cfg.id}: ${result.dates.length} días`]);
       } catch(e) {
         setSyncLog(l => [...l, `✗ ${cfg.id}: ${e.message}`]);
@@ -3562,7 +3672,7 @@ const ChartmetricModal = ({ onClose, onSync }) => {
 //  ROOT APP
 // ════════════════════════════════════════════════════════════════
 export default function MusicDecayIntelligence() {
-  const [selectedArtist, setSelectedArtist] = useState("NTVG 2");
+  const [selectedArtist, setSelectedArtist] = useState("Downtown");
   const [selectedId, setSelectedId] = useState(() => {
     // Pick first track that has real data (avoids empty placeholder tracks)
     const first = CATALOG.find(t => t.metrics != null && t.name);
