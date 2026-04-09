@@ -323,7 +323,7 @@ const _DM_CONFIG = {
   "s4a-031": { status:"active", dmStart:0   },  // Comodín
   "s4a-036": { status:"active", dmStart:0   },  // Paranoia
   "s4a-041": { status:"active", dmStart:0   },  // Sin pena ni gloria
-  "s4a-103": { status:"active", dmStart:0   },  // Ángel con campera
+  "s4a-103": { status:"completed", dmStart:0, dmEnd:314 },  // Ángel con campera
   // Active — Wave 2026-02-01 (entered DM day 314, baseline calculable):
   "s4a-005": { status:"active", dmStart:314 },  // No Te Imaginas
   "s4a-012": { status:"active", dmStart:314 },  // Cero a la izquierda
@@ -362,9 +362,14 @@ const _snapTo1st = (idx, dates) => {
   return foundNext !== -1 ? foundNext : idx;
 };
 
+// Tracks gestionados por DPR (Florece) — excluir de Downtown para evitar duplicados
+const _DPR_EXCL = new Set(["s4a-037","s4a-024","s4a-030","s4a-025","s4a-038","s4a-023","s4a-049","s4a-039","s4a-048","s4a-052"]);
+
 const TRACKS_CFG = [
+  // ── Tracks that appear in DPR (RAW_STREAM_DATA_FLORECE) — exclude from Downtown ──
+  // flr-001..010 correspond to these s4a IDs (same songs, managed via DPR)
   // ── NTVG 2 catalog (distribuidora: Downtown) ──
-  ...Object.entries(RAW_STREAM_DATA).map(([id, t]) => {
+  ...Object.entries(RAW_STREAM_DATA).filter(([id]) => !_DPR_EXCL.has(id)).map(([id, t]) => {
     const dm = _DM_CONFIG[id] || {};
     // DM siempre entra el 1ero de cada mes — snap índice al 1ero si no lo es
     const rawStart = dm.dmStart ?? null;
@@ -376,6 +381,8 @@ const TRACKS_CFG = [
       status:  dm.status  ?? "none",
       dmStart: _snapTo1st(rawStart, t.dates),
       dmEnd:   _snapTo1st(rawEnd,   t.dates),
+      // Tracks que entraron a DM antes del inicio del dataset — sin baseline calculable
+      dmStartUnknown: rawStart === 0,
       sources: { editorial: 20, algorithmic: 42, playlists: 25, profile: 13 },
     };
   }),
@@ -2182,9 +2189,6 @@ const DecayTab = ({ track, catalog }) => {
   const forecastEndLabel = allChartData.at(-1)?.label;
   return (
     <div className="p-5 space-y-4">
-      <div className="grid grid-cols-6 gap-3">
-        {kpis.map(c=><StatCard key={c.label} {...c} />)}
-      </div>
       <div className="bg-slate-900 rounded-xl border border-slate-800 p-5">
         <div className="flex items-center justify-between mb-4">
           <div>
@@ -2426,56 +2430,9 @@ const DecayTab = ({ track, catalog }) => {
       </div>
       )}
 
-      {/* ── Patrones del Catálogo ── */}
-      <div className="bg-slate-900 rounded-xl border border-slate-800 p-5 flex flex-col gap-4">
-        <div className="flex items-center gap-2">
-          <TrendingUp size={15} className="text-indigo-400" />
-          <h3 className="text-sm font-semibold text-slate-200">Patrones del Catálogo</h3>
-          <span className="text-xs text-slate-600 bg-slate-800 px-2 py-0.5 rounded-full font-mono">{similarPattern.similar.length} tracks similares</span>
-        </div>
-
-        {/* Similar tracks grid */}
-        {similarPattern.similar.length > 0 ? (
-          <div className="grid grid-cols-2 gap-2">
-            {similarPattern.similar.map(t => (
-              <div key={t.id} className="bg-slate-800/50 rounded-lg p-3 flex flex-col gap-1">
-                <p className="text-xs font-medium text-slate-200 truncate">{t.name ?? t.id}</p>
-                <div className="flex flex-wrap gap-x-3 gap-y-0.5">
-                  <span className="text-xs text-slate-500">k {fmt.dec4(t.metrics.structK)}</span>
-                  <span className="text-xs text-slate-500">floor {t.metrics.organicFloor}%</span>
-                  <span className="text-xs text-slate-500">sim {t._sim}%</span>
-                </div>
-                {t.dmStart != null && t.dm?.liftPct != null && (
-                  <span className={`text-xs font-semibold ${t.dm.liftPct > 10 ? "text-emerald-400" : t.dm.liftPct > 0 ? "text-amber-400" : "text-rose-400"}`}>
-                    DM {t.dm.liftPct > 0 ? "+" : ""}{t.dm.liftPct}% lift
-                  </span>
-                )}
-                {t.dmStart == null && (
-                  <span className="text-xs text-slate-600">Sin campaña DM</span>
-                )}
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="text-xs text-slate-600">No hay suficientes tracks con métricas similares en el catálogo.</p>
-        )}
-
-        {/* Three decision recommendations */}
-        <div className="space-y-2 pt-1">
-          {[
-            { icon: Zap,         label: "¿Activar DM?",      color: similarPattern.actColor,   text: similarPattern.actText   },
-            { icon: DollarSign,  label: "¿Cuánto invertir?", color: similarPattern.invColor,   text: similarPattern.invText   },
-            { icon: Activity,    label: "¿Cuándo pausar?",   color: similarPattern.pauseColor, text: similarPattern.pauseText },
-          ].map(({ icon: Icon, label, color, text }) => (
-            <div key={label} className={`flex gap-3 p-3 rounded-xl bg-${color}-500/5 border border-${color}-500/15`}>
-              <Icon size={14} className={`text-${color}-400 mt-0.5 shrink-0`} />
-              <div>
-                <p className={`text-xs font-semibold text-${color}-300 mb-0.5`}>{label}</p>
-                <p className="text-xs text-slate-400 leading-relaxed">{text}</p>
-              </div>
-            </div>
-          ))}
-        </div>
+      {/* ── KPIs ── */}
+      <div className="grid grid-cols-6 gap-3">
+        {kpis.map(c=><StatCard key={c.label} {...c} />)}
       </div>
     </div>
   );
@@ -3034,7 +2991,7 @@ const DMManagerTab = ({ catalog, onUpdateStatus, dmOverrides, onUpdateDM, onRemo
 //  DM AUDIT TAB
 // ════════════════════════════════════════════════════════════════
 const DMAuditTab = ({ track }) => {
-  const { dm, sources, status, name, history, dmStart, dmEnd, dmPauseIdx, dmResumeIdx, endDate } = track;
+  const { dm, sources, status, name, history, dmStart, dmEnd, dmPauseIdx, dmResumeIdx, endDate, dmStartUnknown } = track;
   if (status==="none"||status==="candidate") return (
     <div className="p-6 flex items-center justify-center min-h-64">
       <div className="text-center max-w-sm">
@@ -3088,6 +3045,142 @@ const DMAuditTab = ({ track }) => {
     "Streams Reales": d.streams,
     "Piso Orgánico": d.baselineOrg ?? null,
   }));
+
+  // Para tracks activos con DM start desconocido: mensaje sin baseline
+  if (dmStartUnknown && status === "active") return (
+    <div className="p-6 flex items-center justify-center min-h-64">
+      <div className="text-center max-w-sm">
+        <AlertTriangle size={30} className="text-amber-600 mx-auto mb-3" />
+        <p className="text-slate-400 font-semibold mb-1">DM activo — fecha de ingreso desconocida</p>
+        <p className="text-xs text-slate-600">{name} está en Discovery Mode desde antes del inicio del dataset. Sin baseline pre-DM, no es posible calcular lift ni revenue incremental.</p>
+        <div className="mt-4 grid grid-cols-2 gap-3">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-3">
+            <p className="text-xs text-slate-500">Streams hoy</p>
+            <p className="text-sm font-bold text-white">{fmt.k(history.at(-1)?.streams ?? 0)}</p>
+          </div>
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-3">
+            <p className="text-xs text-slate-500">% Algorítmico</p>
+            <p className="text-sm font-bold text-orange-400">{((dm.algoRatio??0)*100).toFixed(1)}%</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  // Para tracks donde el DM start es desconocido (entraron antes del dataset),
+  // mostrar solo el análisis post-DM — el análisis durante la campaña no es confiable.
+  if (dmStartUnknown && status === "completed") {
+    const postDmSlice  = dmEnd != null ? history.slice(dmEnd) : [];
+    if (postDmSlice.length === 0) return (
+      <div className="p-6 flex items-center justify-center min-h-64">
+        <div className="text-center max-w-sm">
+          <AlertTriangle size={30} className="text-amber-600 mx-auto mb-3" />
+          <p className="text-slate-400 font-semibold mb-1">Sin datos post-campaña</p>
+          <p className="text-xs text-slate-600">{name} entró a DM antes del inicio del dataset. No hay datos post-DM disponibles aún.</p>
+        </div>
+      </div>
+    );
+    const endDateRaw = endDate ?? (dmEnd != null ? history[dmEnd]?.date : null);
+    const endDateStr = endDateRaw
+      ? (() => { const d = new Date(endDateRaw + "T12:00:00"); return d.toLocaleDateString("es-AR",{day:"numeric",month:"long",year:"numeric"}); })()
+      : null;
+    const postOrgFloorAvg = postDmSlice.length > 0
+      ? Math.round(postDmSlice.reduce((s,d) => s + (d.baselineOrg ?? d.streams), 0) / postDmSlice.length) : null;
+    const postVsFloor = (dm.postDmAvg != null && postOrgFloorAvg != null && postOrgFloorAvg > 0)
+      ? +((dm.postDmAvg / postOrgFloorAvg - 1) * 100).toFixed(1) : null;
+    const retentionTrend = postDmSlice.length >= 28 ? (() => {
+      const f14 = postDmSlice.slice(0,14), l14 = postDmSlice.slice(-14);
+      return +((l14.reduce((s,d)=>s+d.streams,0)/14 / (f14.reduce((s,d)=>s+d.streams,0)/14) - 1)*100).toFixed(1);
+    })() : null;
+    const postChartData = postDmSlice.map(d => ({"label":d.label,"Streams Reales":d.streams,"Piso Orgánico":d.baselineOrg??null}));
+    return (
+      <div className="p-5 space-y-4">
+        {/* Banner */}
+        <div className="flex items-center gap-3 bg-slate-800/60 border border-slate-700 rounded-xl px-5 py-3">
+          <AlertTriangle size={15} className="text-amber-500 flex-shrink-0" />
+          <div className="flex-1 min-w-0">
+            <span className="text-sm font-semibold text-amber-300">Ingreso a DM previo al dataset</span>
+            <span className="text-xs text-slate-500 ml-2">{name} estaba en DM antes del inicio de los datos — sin baseline disponible para medir lift</span>
+          </div>
+          {endDateStr && <span className="text-xs text-amber-600 whitespace-nowrap">Salió: {endDateStr}</span>}
+        </div>
+        {/* Retention stats */}
+        <div className="grid grid-cols-4 gap-3">
+          {[
+            {label:"Avg Post-DM", value:fmt.k(dm.postDmAvg), sub:"streams/día", color:"text-white"},
+            {label:"Avg En DM",   value:fmt.k(dm.dmAvg),     sub:"streams/día (ref. sin baseline)", color:"text-purple-300"},
+            {label:"vs Piso Org", value:postVsFloor!=null?(postVsFloor>0?"+":"")+postVsFloor+"%":"—",
+              sub:`${fmt.k(postOrgFloorAvg)} piso est.`, color:postVsFloor==null?"text-slate-500":postVsFloor>=0?"text-cyan-400":"text-rose-400"},
+            {label:"Tendencia",   value:retentionTrend!=null?(retentionTrend>0?"+":"")+retentionTrend+"%":postDmSlice.length<28?"< 28d":"—",
+              sub:"últ 14d vs prim 14d", color:retentionTrend==null?"text-slate-500":retentionTrend>=0?"text-emerald-400":"text-amber-400"},
+          ].map(c=>(
+            <div key={c.label} className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+              <p className="text-xs text-slate-500 mb-1">{c.label}</p>
+              <p className={`text-2xl font-bold ${c.color}`}>{c.value}</p>
+              <p className="text-xs text-slate-600 mt-0.5">{c.sub}</p>
+            </div>
+          ))}
+        </div>
+        {/* Conversión algo→org */}
+        <div className="bg-slate-900 rounded-xl border border-slate-800 p-5">
+          <h3 className="text-sm font-semibold text-slate-200 mb-1">Conversión Algo → Orgánico</h3>
+          <p className="text-xs text-slate-500 mb-4">Comparación de streams algorítmicos vs orgánicos post-DM</p>
+          <div className="space-y-3">
+            {[
+              {phase:"En DM (ref.)", org:dm.dmOrgAvg, algo:dm.campAlgoAvg, color:"#a855f7"},
+              {phase:"Post-DM",      org:dm.postDmOrgAvg, algo:dm.postDmAlgoAvg, color:"#10b981"},
+            ].map(row=>{
+              const total=(row.org??0)+(row.algo??0);
+              const orgPct=total>0?Math.round(((row.org??0)/total)*100):0;
+              const algoPct=100-orgPct;
+              return (
+                <div key={row.phase}>
+                  <div className="flex justify-between text-xs mb-1">
+                    <span className="text-slate-400">{row.phase}</span>
+                    <span className="text-white font-bold">{fmt.exact(total)}/día</span>
+                  </div>
+                  <div className="flex h-5 rounded-full overflow-hidden bg-slate-800">
+                    <div className="flex items-center justify-center text-[9px] font-bold text-white" style={{width:`${orgPct}%`,background:"#10b981"}}>{orgPct>8?`${orgPct}%`:""}</div>
+                    <div className="flex items-center justify-center text-[9px] font-bold text-white" style={{width:`${algoPct}%`,background:"#f97316"}}>{algoPct>8?`${algoPct}%`:""}</div>
+                  </div>
+                  <div className="flex justify-between text-[10px] mt-0.5">
+                    <span className="text-cyan-500">{fmt.exact(row.org??0)} org</span>
+                    <span className="text-orange-400">{fmt.exact(row.algo??0)} algo</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {dm.orgConversion != null && (
+            <div className={`mt-4 border rounded-xl px-4 py-3 text-xs leading-relaxed ${
+              dm.orgConversion>=10?"bg-emerald-500/8 border-emerald-500/20 text-emerald-300"
+              :dm.orgConversion>=-5?"bg-amber-500/8 border-amber-500/20 text-amber-300"
+              :"bg-rose-500/8 border-rose-500/20 text-rose-300"}`}>
+              {dm.orgConversion>=10?<><span className="font-bold mr-1">✓</span>Orgánico post-DM creció <strong>+{dm.orgConversion}%</strong> vs referencia DM.</>
+              :dm.orgConversion>=-5?<><span className="font-bold mr-1">~</span>Orgánico post-DM estable ({dm.orgConversion>0?"+":""}{dm.orgConversion}%).</>
+              :<><span className="font-bold mr-1">↓</span>Orgánico post-DM cayó <strong>{dm.orgConversion}%</strong>. DM no logró convertir oyentes.</>}
+            </div>
+          )}
+        </div>
+        {/* Chart */}
+        <div className="bg-slate-900 rounded-xl border border-slate-800 p-5">
+          <h3 className="text-sm font-semibold text-slate-200 mb-1">Evolución Post-DM</h3>
+          <p className="text-xs text-slate-500 mb-4">Streams reales vs Piso Orgánico estimado</p>
+          <ResponsiveContainer width="100%" height={180}>
+            <ComposedChart data={postChartData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+              <XAxis dataKey="label" tick={{fontSize:9,fill:"#64748b"}} axisLine={false} tickLine={false} interval={Math.max(1,Math.floor(postChartData.length/7))} />
+              <YAxis tickFormatter={fmt.k} tick={{fontSize:9,fill:"#64748b"}} axisLine={false} tickLine={false} />
+              <Tooltip content={<ChartTooltip />} />
+              <Legend wrapperStyle={{fontSize:"11px"}} />
+              <Area dataKey="Piso Orgánico" fill="#06b6d4" fillOpacity={0.12} stroke="#06b6d4" strokeWidth={1.5} strokeDasharray="4 4" />
+              <Line dataKey="Streams Reales" stroke="#10b981" strokeWidth={2} dot={false} />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-5 space-y-4">
