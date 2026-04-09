@@ -733,6 +733,13 @@ const buildCatalog = (liveData = {}) => TRACKS_CFG.map(cfg => {
     const algoRatio   = obs > 0 ? campProgObs / obs : 0;
     const algoInc     = hasBaseline ? Math.round(inc * algoRatio) : null;
     const orgInc      = hasBaseline ? Math.round(inc * (1 - algoRatio)) : null;
+    // Cambio real de streams algorítmicos: pre-DM avg/día vs durante-DM avg/día
+    const preDmSlice = history.slice(Math.max(0, (cfg.dmStart??0) - 30), cfg.dmStart??0);
+    const preDmAlgoAvg = preDmSlice.length > 0
+      ? preDmSlice.reduce((s,d) => s + (d.programmedStreams??0), 0) / preDmSlice.length : 0;
+    const campAlgoAvg = camp.length > 0 ? campProgObs / camp.length : 0;
+    const algoDelta = preDmAlgoAvg > 0 ? +((campAlgoAvg / preDmAlgoAvg - 1) * 100).toFixed(1) : null;
+    const algoDeltaAbs = Math.round(campAlgoAvg - preDmAlgoAvg);
     const gross = hasBaseline ? inc * cfg.royalty : null;
     const algoGross = algoInc != null ? +(algoInc * cfg.royalty).toFixed(2) : null;
     const orgGross  = orgInc  != null ? +(orgInc  * cfg.royalty).toFixed(2) : null;
@@ -756,6 +763,7 @@ const buildCatalog = (liveData = {}) => TRACKS_CFG.map(cfg => {
       observed: obs, baseline: bl,
       campProgObs, campOrgObs, algoRatio: +algoRatio.toFixed(3),
       algoInc, orgInc, algoGross, orgGross,
+      algoDelta, algoDeltaAbs, preDmAlgoAvg: Math.round(preDmAlgoAvg), campAlgoAvg: Math.round(campAlgoAvg),
       noBaseline: !hasBaseline,
       dmAvg, postDmAvg, postDmDelta,
     };
@@ -1762,17 +1770,16 @@ const DecayTab = ({ track, catalog }) => {
   const allChartData = useMemo(()=>{
     if (!withForecast.length) return [];
     const popLookup = track.popMetrics?.lookup ?? {};
-    const base = withForecast.map((d,i)=>({
+    // Filtrar días con streams === 0 al inicio (track no existía)
+    let startAt = 0;
+    for (let i = 0; i < withForecast.length; i++) {
+      if (!withForecast[i].isForecast && (withForecast[i].streams ?? 0) > 0) { startAt = i; break; }
+    }
+    const trimmed = withForecast.slice(startAt);
+    const base = trimmed.map((d,i)=>({
       label:d.label,
       "Streams Reales":       d.isForecast ? null : d.streams,
       "Streams Algorítmicos": (!d.isForecast && showAlgo) ? (d.programmedStreams ?? 0) : null,
-      // Modelo A: contrafactual total (qué hubiera pasado sin DM) — para medir lift
-      "Contrafactual DM":     (!d.isForecast && dmStart != null) ? d.baseline : null,
-      // Modelo B: piso orgánico — conecta con el pronóstico post-DM
-      "Piso Orgánico":        (!d.isForecast && dmStart != null) ? d.baselineOrg : null,
-      // Pronóstico arranca desde el piso orgánico en el último día real y continúa
-      "Pronóstico":           d.isForecast ? d.baseline : (i===lastActualIdx && dmStart!=null ? d.baselineOrg : null),
-      "CI Superior":d.ci_hi, "CI Inferior":d.ci_lo,
       "Popularity": (!d.isForecast && d.date && popLookup[d.date] !== undefined) ? popLookup[d.date] : null,
     }));
     if (viewMode==="weekly") {
@@ -1783,11 +1790,6 @@ const DecayTab = ({ track, catalog }) => {
         weeks.push({label:chunk[0]?.label,
           "Streams Reales":agg("Streams Reales"),
           "Streams Algorítmicos":agg("Streams Algorítmicos"),
-          "Contrafactual DM":agg("Contrafactual DM"),
-          "Piso Orgánico":agg("Piso Orgánico"),
-          "Pronóstico":agg("Pronóstico"),
-          "CI Superior":agg("CI Superior"),
-          "CI Inferior":agg("CI Inferior"),
           "Popularity":agg("Popularity"),
         });
       }
@@ -2026,9 +2028,7 @@ const DecayTab = ({ track, catalog }) => {
           <div>
             <h3 className="text-sm font-semibold text-slate-200">Decay Intelligence Chart — {track.name}</h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              <span className="text-purple-400/70">━━</span> Contrafactual DM (lift) &nbsp;·&nbsp;
-              <span className="text-cyan-400/70">╌╌</span> Piso Orgánico (post-DM) &nbsp;·&nbsp;
-              Log-EWLS · 90d · P97 · DOW · +{CFG.FORECAST_DAYS}d
+              Streams reales + algorítmicos · Datos desde primer día con actividad
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -2058,31 +2058,8 @@ const DecayTab = ({ track, catalog }) => {
             <YAxis tickFormatter={fmt.k} tick={{fontSize:9,fill:"#64748b"}} axisLine={false} tickLine={false} width={48} />
             <Tooltip content={<DecayTooltip />} />
             <Legend wrapperStyle={{fontSize:"11px",paddingTop:"8px"}} />
-            {forecastStartLabel&&forecastEndLabel&&(
-              <ReferenceArea x1={forecastStartLabel} x2={forecastEndLabel} fill="#a855f7" fillOpacity={0.05} stroke="none" />
-            )}
-            {dmStart!=null&&<>
-              <Line dataKey="CI Superior" stroke="#a855f7" strokeWidth={1} dot={false} strokeDasharray="2 4" strokeOpacity={0.35} legendType="none" />
-              <Line dataKey="CI Inferior" stroke="#a855f7" strokeWidth={1} dot={false} strokeDasharray="2 4" strokeOpacity={0.35} legendType="none" />
-              {/* Modelo A: contrafactual DM — trayectoria total sin DM (para medir lift) */}
-              <Line dataKey="Contrafactual DM" stroke="#a855f7" strokeWidth={2} dot={false} strokeDasharray="7 3" />
-              {/* Modelo B: piso orgánico — qué esperar post-DM (sin componente algo) */}
-              <Line dataKey="Piso Orgánico" stroke="#06b6d4" strokeWidth={1.5} dot={false} strokeDasharray="4 4" strokeOpacity={0.75} />
-              {/* Pronóstico conecta desde el piso orgánico hacia adelante */}
-              <Line dataKey="Pronóstico" stroke="#06b6d4" strokeWidth={1.5} dot={false} strokeDasharray="3 3" strokeOpacity={0.55} connectNulls={false} />
-            </>}
-            {/* Post-DM completed period shading */}
-            {dmEndLabel && lastActualLabel && (
-              <ReferenceArea x1={dmEndLabel} x2={lastActualLabel} fill="#f59e0b" fillOpacity={0.04} />
-            )}
             {showAlgo&&<Line dataKey="Streams Algorítmicos" stroke="#f97316" strokeWidth={1.5} dot={false} connectNulls={false} strokeOpacity={0.85} />}
             <Line dataKey="Streams Reales" stroke="#10b981" strokeWidth={2.5} dot={false} connectNulls={false} activeDot={{r:4,fill:"#10b981",stroke:"#0f172a",strokeWidth:2}} />
-            {dmLabel&&<ReferenceLine x={dmLabel} stroke="#a855f7" strokeWidth={1.5} strokeDasharray="4 4"
-              label={{value:"DM ▶",position:"top",fontSize:10,fill:"#a855f7"}} />}
-            {dmEndLabel&&<ReferenceLine x={dmEndLabel} stroke="#f59e0b" strokeWidth={1.5} strokeDasharray="4 4"
-              label={{value:"◼ Fin DM",position:"top",fontSize:10,fill:"#f59e0b"}} />}
-            {lastActualLabel&&<ReferenceLine x={lastActualLabel} stroke="#475569" strokeWidth={1} strokeDasharray="3 3"
-              label={{value:"Hoy →",position:"insideTopRight",fontSize:9,fill:"#94a3b8"}} />}
           </ComposedChart>
         </ResponsiveContainer>
         {pop&&(
@@ -3006,18 +2983,27 @@ const DMAuditTab = ({ track }) => {
           </div>
           <div className="flex gap-4 mt-3 flex-wrap border-t border-slate-700/50 pt-3">
             {[
-              ["Algorítmico",fmt.k(dm.campProgObs),"text-orange-300"],
-              ["Orgánico",fmt.k(dm.campOrgObs),"text-cyan-300"],
+              ["Algo Total",fmt.k(dm.campProgObs),"text-orange-300"],
+              ["Org Total",fmt.k(dm.campOrgObs),"text-cyan-300"],
               ["% Algo",`${Math.round((dm.algoRatio??0)*100)}%`,"text-orange-400"],
             ].map(([l,v,c])=>(
               <div key={l}><p className="text-xs text-slate-500">{l}</p><p className={`text-sm font-bold ${c}`}>{v}</p></div>
             ))}
-            {!dm.noBaseline && dm.algoInc != null && (
-              <>
-                <div><p className="text-xs text-slate-500">Inc. Algo</p><p className="text-sm font-bold text-orange-400">+{fmt.k(dm.algoInc)}</p></div>
-                <div><p className="text-xs text-slate-500">Inc. Org.</p><p className="text-sm font-bold text-cyan-400">+{fmt.k(dm.orgInc)}</p></div>
-              </>
-            )}
+            <div>
+              <p className="text-xs text-slate-500">Algo/día Pre-DM</p>
+              <p className="text-sm font-bold text-slate-300">{fmt.k(dm.preDmAlgoAvg??0)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-slate-500">Algo/día En DM</p>
+              <p className="text-sm font-bold text-orange-300">{fmt.k(dm.campAlgoAvg??0)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-slate-500">Cambio Algo</p>
+              <p className={`text-sm font-bold ${(dm.algoDelta??0)>0?"text-emerald-400":(dm.algoDelta??0)<0?"text-rose-400":"text-slate-400"}`}>
+                {dm.algoDelta!=null?`${dm.algoDelta>0?"+":""}${dm.algoDelta}%`:"—"}
+                <span className="text-xs ml-1 opacity-70">({dm.algoDeltaAbs!=null?(dm.algoDeltaAbs>0?"+":"")+fmt.k(dm.algoDeltaAbs):"—"}/d)</span>
+              </p>
+            </div>
           </div>
         </div>
         <StatCard label="Revenue Bruto Incremental" value={dm.noBaseline?"—":fmt.usd(dm.gross)} sub={dm.noBaseline?"Sin datos pre-DM":`${fmt.k(dm.incremental)} streams × $${track.royalty}/stream`} color="emerald" icon={DollarSign} />
@@ -3028,9 +3014,9 @@ const DMAuditTab = ({ track }) => {
           <h3 className="text-sm font-semibold text-slate-200 mb-4">Waterfall de Revenue</h3>
           <div className="space-y-2">
             {[
-              {label:"Revenue Bruto Incremental",value:dm.gross,color:"text-emerald-400",sign:"+"},
-              {label:`  Inc. Algorítmico (${Math.round((dm.algoRatio??0)*100)}%)`,value:dm.algoGross,color:"text-orange-400",sign:"+",sub:true},
-              {label:`  Inc. Orgánico (${100-Math.round((dm.algoRatio??0)*100)}%)`,value:dm.orgGross,color:"text-cyan-400",sign:"+",sub:true},
+              {label:"Revenue Bruto Incremental",value:dm.gross,color:(dm.gross??0)>=0?"text-emerald-400":"text-rose-400",sign:(dm.gross??0)>=0?"+":""},
+              {label:`  Inc. Algorítmico (${Math.round((dm.algoRatio??0)*100)}%)`,value:dm.algoGross,color:(dm.algoGross??0)>=0?"text-orange-400":"text-rose-400",sign:(dm.algoGross??0)>=0?"+":"",sub:true},
+              {label:`  Inc. Orgánico (${100-Math.round((dm.algoRatio??0)*100)}%)`,value:dm.orgGross,color:(dm.orgGross??0)>=0?"text-cyan-400":"text-rose-400",sign:(dm.orgGross??0)>=0?"+":"",sub:true},
               {label:`Comisión Spotify (${commEff.toFixed(0)}% efectivo)`,value:dm.commission,color:"text-rose-400",sign:"−"},
               {label:"Revenue Neto DM",value:dm.net,color:(dm.net??0)>=0?"text-emerald-400":"text-rose-400",sign:(dm.net??0)>=0?"+":"",border:true},
             ].filter(r=>!r.sub||!dm.noBaseline).map(row=>(
