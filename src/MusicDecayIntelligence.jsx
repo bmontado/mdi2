@@ -363,14 +363,15 @@ const _snapTo1st = (idx, dates) => {
 };
 
 const TRACKS_CFG = [
-  // ── NTVG 2 catalog ──
+  // ── NTVG 2 catalog (distribuidora: Downtown) ──
   ...Object.entries(RAW_STREAM_DATA).map(([id, t]) => {
     const dm = _DM_CONFIG[id] || {};
     // DM siempre entra el 1ero de cada mes — snap índice al 1ero si no lo es
     const rawStart = dm.dmStart ?? null;
     const rawEnd   = dm.dmEnd   ?? null;
+    const _artistMap = {"NTVG 2":"Downtown","Florece":"DPR"};
     return {
-      id, name: t.name, artist: t.artist ?? "Downtown",
+      id, name: t.name, artist: _artistMap[t.artist] ?? t.artist ?? "Downtown",
       genre: "Rock Alternativo", royalty: 0.0011,
       status:  dm.status  ?? "none",
       dmStart: _snapTo1st(rawStart, t.dates),
@@ -1225,7 +1226,7 @@ const DynamicIsland = ({ track, isTrackTab, totalTracks }) => {
 // ════════════════════════════════════════════════════════════════
 //  SIDEBAR
 // ════════════════════════════════════════════════════════════════
-const ARTISTS = ["NTVG", "Downtown", "DPR", "Zeballos"];
+const ARTISTS = ["Downtown", "DPR"];
 
 const Sidebar = ({ tracks, selectedId, onSelect, search, onSearch, filter, onFilter, artist, onArtist }) => {
   const [sortBy, setSortBy] = useState("streams");
@@ -3549,7 +3550,8 @@ const ChartmetricModal = ({ onClose, onSync }) => {
         setSyncLog(l => [...l, `↓ Fetching ${cfg.id} (CM ${cmId})…`]);
         const raw = RAW_STREAM_DATA[cfg.id] ?? RAW_STREAM_DATA_FLORECE[cfg.id];
         const result = await cmFetchStreams(accessToken, cmId, since, until);
-        liveData[cfg.id] = { name: raw?.name ?? cfg.id, artist: raw?.artist ?? "DPR", ...result };
+        const _am = {"NTVG 2":"Downtown","Florece":"DPR"};
+        liveData[cfg.id] = { name: raw?.name ?? cfg.id, artist: _am[raw?.artist] ?? raw?.artist ?? "DPR", ...result };
         setSyncLog(l => [...l, `✓ ${cfg.id}: ${result.dates.length} días`]);
       } catch(e) {
         setSyncLog(l => [...l, `✗ ${cfg.id}: ${e.message}`]);
