@@ -908,7 +908,7 @@ const buildCatalog = (liveData = {}) => TRACKS_CFG.map(cfg => {
   const popMetrics = popCurrent !== null
     ? { current: popCurrent, trend: popTrend, lookup: popLookup }
     : null;
-  return { ...cfg, status: effectiveStatus, name:raw.name, artist:raw.artist, history, metrics, dm, popMetrics };
+  return { ...cfg, status: effectiveStatus, name:raw.name, history, metrics, dm, popMetrics };
 }).filter(Boolean);
 
 const CATALOG = buildCatalog();
