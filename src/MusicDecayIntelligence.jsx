@@ -57,11 +57,12 @@ const CFG = {
   SLOPE_CAP: 0.05, DM_CUT: 0.30, CI: 1.96, FORECAST_DAYS: 30,
 };
 
-// ── Umbral para candidatos DM (auto-calculado en buildCatalog) ──
+// ── Umbral para candidatos DM (criterio doble: algo + perfil orgánico) ──
 const CANDIDATE_CFG = {
-  minAvgStreams: 5000,   // mínimo streams/día promedio (últimos 28d)
-  maxOrgFloor:  75,     // % del pico — si cae bajo esto, hay decay real
-  maxMom4w:     -3,     // % cambio 4 semanas — si es más negativo, hay caída
+  minAvgStreams:  3000,  // mínimo streams/día promedio (últimos 28d)
+  minAlgoPct:    30,    // % streams desde fuentes algorítmicas (sources.algorithmic)
+  minAlgoStreams: 800,  // mínimo streams algorítmicos absolutos/día estimados
+  maxStructK:    0.030, // decay estructural — bajo = decaimiento lento = perfil saludable
 };
 
 // ════════════════════════════════════════════════════════════════
@@ -926,13 +927,15 @@ const buildCatalog = (liveData = {}) => TRACKS_CFG.map(cfg => {
       dmPeriods,
     };
   }
-  // Auto-detect candidatos: tracks con decay real y volumen suficiente
+  // Auto-detect candidatos: criterio doble (algo% + perfil orgánico saludable)
   let effectiveStatus = cfg.status;
   if (effectiveStatus === "none" && metrics) {
+    const algoEstPerDay = Math.round((cfg.sources?.algorithmic ?? 0) / 100 * (metrics.avgStreams ?? 0));
     const hasVolume  = metrics.avgStreams >= CANDIDATE_CFG.minAvgStreams;
-    const hasDecay   = metrics.organicFloor <= CANDIDATE_CFG.maxOrgFloor
-                    || metrics.mom4w        <= CANDIDATE_CFG.maxMom4w;
-    if (hasVolume && hasDecay) effectiveStatus = "candidate";
+    const hasAlgo    = (cfg.sources?.algorithmic ?? 0) >= CANDIDATE_CFG.minAlgoPct
+                    && algoEstPerDay >= CANDIDATE_CFG.minAlgoStreams;
+    const hasProfile = (metrics.structK ?? 1) <= CANDIDATE_CFG.maxStructK;
+    if (hasVolume && hasAlgo && hasProfile) effectiveStatus = "candidate";
   }
   // Popularity data
   const popLookup = {};
@@ -1981,8 +1984,13 @@ const DecayTab = ({ track, catalog }) => {
       const totStr = slice.reduce((s,d)=>s+d.streams,0);
       const totOrg = slice.reduce((s,d)=>s+d.orgStreams,0);
       const totAlg = slice.reduce((s,d)=>s+(d.programmedStreams??0),0);
+      // Date label: "dd/mm" of first day of the week
+      const startDate = slice[0]?.date ?? null;
+      const dateLabel = startDate
+        ? startDate.slice(5).replace("-", "/")   // "YYYY-MM-DD" → "MM/DD"
+        : `W-${w}`;
       weeks.push({
-        label: `W-${w}`,
+        label: w === 0 ? "Hoy" : dateLabel,
         total: Math.round(totStr/slice.length),
         organic: Math.round(totOrg/slice.length),
         algo: Math.round(totAlg/slice.length),
@@ -2111,7 +2119,23 @@ const DecayTab = ({ track, catalog }) => {
         actions.push({ color:"rose", icon:"💨", title:"Streams de paso", desc:`Correlación algo→orgánico: ${algoOrgCorr}. El algoritmo no convierte — streams sin fidelización.` });
     }
 
-    return { signalColor, signalTitle, signalText, actions, lifecycle, orgScore, orgMom, orgK, algoRatioNow, algoRatioTrend, algoOrgCorr, algoRamp, weeks, avgLift, avgK };
+    // ── 9. DM SCORE (0–100): composite receptividad algorítmica ──
+    // Algo component (0-35): ¿qué tanto está boosteando Spotify ahora?
+    const algoComp = Math.min(35, Math.round(algoRatioNow * 35 / 70));
+    // Org component (0-25): momentum orgánico = base sostenible para el DM
+    const orgComp  = orgMom > 10 ? 25 : orgMom > 0 ? 18 : orgMom > -10 ? 10 : 3;
+    // DM Performance component (0-30): lift actual si está activo
+    let dmPerf = 15; // neutral para tracks sin DM
+    if (track.status === "active" && dm.liftPct != null)
+      dmPerf = dm.liftPct > 30 ? 30 : dm.liftPct > 15 ? 22 : dm.liftPct > 5 ? 14 : 5;
+    else if (track.status === "completed" && dm.liftPct != null)
+      dmPerf = Math.min(30, Math.max(0, Math.round(dm.liftPct * 0.8)));
+    // Independence component (0-10): orgánico independiente = DM más sostenible
+    const indComp  = Math.round(orgScore / 10);
+    const dmScore  = Math.min(100, algoComp + orgComp + dmPerf + indComp);
+    const dmScoreBreakdown = { algoComp, orgComp, dmPerf, indComp };
+
+    return { signalColor, signalTitle, signalText, actions, lifecycle, orgScore, orgMom, orgK, algoRatioNow, algoRatioTrend, algoOrgCorr, algoRamp, weeks, avgLift, avgK, dmScore, dmScoreBreakdown };
   }, [track, catalog, metrics, history, dmStart, dmEnd]);
 
   const similarPattern = useMemo(() => {
@@ -2269,9 +2293,9 @@ const DecayTab = ({ track, catalog }) => {
       {insight && (
       <div className="bg-slate-900 rounded-xl border border-slate-800 p-5 flex flex-col gap-4">
 
-        {/* ── Header ── */}
+        {/* ── Header: título + lifecycle badge + DM Score ── */}
         <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <Brain size={15} className="text-purple-400 shrink-0" />
             <h3 className="text-sm font-semibold text-slate-200">AI Intel</h3>
             <span className={`text-xs px-2 py-0.5 rounded-full font-semibold border whitespace-nowrap
@@ -2283,31 +2307,31 @@ const DecayTab = ({ track, catalog }) => {
               {insight.lifecycle.label}
             </span>
           </div>
-          {/* Organic Independence gauge */}
-          <div className="flex items-center gap-2 shrink-0">
+          {/* DM Score gauge */}
+          <div className="flex items-center gap-2.5 shrink-0">
             <div className="text-right">
-              <p className={`text-xs font-black tracking-wider ${insight.orgScore>=65?"text-emerald-400":insight.orgScore>=40?"text-amber-400":"text-rose-400"}`}>
-                {insight.orgScore >= 65 ? "INDEPENDIENTE" : insight.orgScore >= 40 ? "MIXTO" : "DEPENDIENTE"}
+              <p className="text-[10px] text-slate-500 font-semibold uppercase tracking-wide">DM Score</p>
+              <p className={`text-xs font-bold leading-tight ${insight.dmScore>=70?"text-emerald-400":insight.dmScore>=45?"text-amber-400":"text-rose-400"}`}>
+                {insight.dmScore >= 70 ? "Alta receptividad" : insight.dmScore >= 45 ? "Moderada" : "Baja"}
               </p>
-              <p className="text-xs text-slate-500 leading-tight">orgánico</p>
             </div>
-            <div className="relative w-12 h-12 shrink-0">
-              <svg viewBox="0 0 48 48" className="w-12 h-12 -rotate-90">
-                <circle cx="24" cy="24" r="20" fill="none" stroke="#1e293b" strokeWidth="5"/>
-                <circle cx="24" cy="24" r="20" fill="none"
-                  stroke={insight.orgScore>=65?"#10b981":insight.orgScore>=40?"#f59e0b":"#f43f5e"}
+            <div className="relative w-14 h-14 shrink-0">
+              <svg viewBox="0 0 56 56" className="w-14 h-14 -rotate-90">
+                <circle cx="28" cy="28" r="23" fill="none" stroke="#1e293b" strokeWidth="5"/>
+                <circle cx="28" cy="28" r="23" fill="none"
+                  stroke={insight.dmScore>=70?"#10b981":insight.dmScore>=45?"#f59e0b":"#f43f5e"}
                   strokeWidth="5"
-                  strokeDasharray={`${(insight.orgScore/100)*125.7} 125.7`}
+                  strokeDasharray={`${(insight.dmScore/100)*144.5} 144.5`}
                   strokeLinecap="round"/>
               </svg>
-              <span className={`absolute inset-0 flex items-center justify-center text-xs font-black ${insight.orgScore>=65?"text-emerald-400":insight.orgScore>=40?"text-amber-400":"text-rose-400"}`}>
-                {insight.orgScore}
+              <span className={`absolute inset-0 flex items-center justify-center text-sm font-black ${insight.dmScore>=70?"text-emerald-400":insight.dmScore>=45?"text-amber-400":"text-rose-400"}`}>
+                {insight.dmScore}
               </span>
             </div>
           </div>
         </div>
 
-        {/* ── Signal banner ── */}
+        {/* ── Signal banner (estado actual) ── */}
         <div className={`rounded-xl px-4 py-3 border-l-4 bg-slate-800/40
           ${insight.signalColor==="emerald"?"border-emerald-500":insight.signalColor==="amber"?"border-amber-500":
             insight.signalColor==="rose"?"border-rose-500":insight.signalColor==="purple"?"border-purple-500":"border-slate-600"}`}>
@@ -2317,106 +2341,231 @@ const DecayTab = ({ track, catalog }) => {
           <p className="text-xs text-slate-300 leading-relaxed">{insight.signalText}</p>
         </div>
 
-        {/* ── Algo vs Orgánico — evolución semanal ── */}
+        {/* ══════════════════════════════════════════
+            SECCIÓN 1 — ESTADO ACTUAL
+        ══════════════════════════════════════════ */}
+        <div>
+          <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+            <Activity size={10} className="text-slate-500" />
+            Estado Actual
+          </p>
+          <div className="grid grid-cols-4 gap-2">
+            {[
+              {
+                label: "Algo ahora",
+                value: `${insight.algoRatioNow.toFixed(1)}%`,
+                sub: insight.algoRatioTrend !== 0
+                  ? `${insight.algoRatioTrend > 0 ? "↑ +" : "↓ "}${insight.algoRatioTrend}pp/sem`
+                  : "→ estable",
+                color: insight.algoRatioNow > 50 ? "orange" : insight.algoRatioNow > 20 ? "amber" : "slate",
+              },
+              {
+                label: "Org momentum",
+                value: `${insight.orgMom > 0 ? "+" : ""}${insight.orgMom}%`,
+                sub: "últimas 4 sem",
+                color: insight.orgMom > 0 ? "emerald" : insight.orgMom > -10 ? "amber" : "rose",
+              },
+              {
+                label: "Independencia",
+                value: `${insight.orgScore}/100`,
+                sub: insight.orgScore >= 65 ? "Independiente" : insight.orgScore >= 40 ? "Mixto" : "Dependiente",
+                color: insight.orgScore >= 65 ? "emerald" : insight.orgScore >= 40 ? "amber" : "rose",
+              },
+              {
+                label: "Conversión algo",
+                value: insight.algoOrgCorr !== null ? `r = ${insight.algoOrgCorr}` : "N/A",
+                sub: insight.algoOrgCorr !== null
+                  ? (insight.algoOrgCorr > 0.4 ? "Alta" : insight.algoOrgCorr > 0.15 ? "Media" : "Baja")
+                  : "sin datos",
+                color: insight.algoOrgCorr !== null
+                  ? (insight.algoOrgCorr > 0.4 ? "emerald" : insight.algoOrgCorr > 0.15 ? "amber" : "rose")
+                  : "slate",
+              },
+            ].map(({label, value, sub, color}) => (
+              <div key={label} className={`rounded-lg p-2.5 border
+                ${color==="emerald"?"bg-emerald-500/5 border-emerald-500/20":
+                  color==="orange"?"bg-orange-500/5 border-orange-500/20":
+                  color==="amber"?"bg-amber-500/5 border-amber-500/20":
+                  color==="rose"?"bg-rose-500/5 border-rose-500/20":
+                  "bg-slate-800/40 border-slate-700/50"}`}>
+                <p className="text-[9px] text-slate-500 mb-0.5">{label}</p>
+                <p className={`text-base font-black leading-none
+                  ${color==="emerald"?"text-emerald-400":color==="orange"?"text-orange-400":color==="amber"?"text-amber-400":color==="rose"?"text-rose-400":"text-slate-300"}`}>
+                  {value}
+                </p>
+                <p className="text-[9px] text-slate-600 mt-0.5">{sub}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* ══════════════════════════════════════════
+            SECCIÓN 2 — EVOLUCIÓN ALGORÍTMICA
+        ══════════════════════════════════════════ */}
         {insight.weeks.length >= 2 && (
-          <div className="bg-slate-800/30 rounded-xl p-3 border border-slate-700/50">
-            <div className="flex items-center justify-between mb-2.5">
-              <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider flex items-center gap-1.5">
-                <Activity size={11} className="text-orange-400" />
-                Algo vs Orgánico · Evolución semanal
-              </p>
-              <div className="flex items-center gap-3 text-[10px]">
-                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm inline-block bg-orange-500/80"/><span className="text-slate-500">Algorítmico</span></span>
-                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm inline-block bg-emerald-600/80"/><span className="text-slate-500">Orgánico</span></span>
-              </div>
-            </div>
-            {/* Stacked bar chart — one bar per week */}
-            <div className="flex items-end gap-1 h-20">
-              {insight.weeks.map((w, i) => {
-                const maxVal = Math.max(...insight.weeks.map(x => x.total), 1);
-                const barH = Math.round((w.total / maxVal) * 72);
-                const algoH = Math.round(barH * (w.algoPct / 100));
-                const orgH  = barH - algoH;
-                const isLast = i === insight.weeks.length - 1;
-                return (
-                  <div key={i} className="flex-1 flex flex-col items-center justify-end gap-0">
-                    <div className="w-full flex flex-col justify-end rounded-sm overflow-hidden" style={{height:`${barH}px`}}>
-                      <div style={{height:`${algoH}px`,background:"#f97316cc"}} />
-                      <div style={{height:`${orgH}px`,background:"#10b98199"}} />
+          <div>
+            <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+              <Zap size={10} className="text-orange-400" />
+              Evolución Algorítmica · últimas 8 semanas
+            </p>
+            <div className="bg-slate-800/30 rounded-xl p-3 border border-slate-700/50">
+              {/* Stacked bar chart mejorado */}
+              <div className="flex items-end gap-1.5" style={{height:"108px"}}>
+                {insight.weeks.map((w, i) => {
+                  const maxVal = Math.max(...insight.weeks.map(x => x.total), 1);
+                  const barH   = Math.max(8, Math.round((w.total / maxVal) * 88));
+                  const algoH  = Math.round(barH * (w.algoPct / 100));
+                  const orgH   = barH - algoH;
+                  const isLast = i === insight.weeks.length - 1;
+                  const isHighAlgo = w.algoPct > 40;
+                  return (
+                    <div key={i} className="flex-1 flex flex-col items-center gap-0"
+                      title={`${w.label}: ${fmt.k(w.total)}/día · ${w.algoPct}% algo · ${(100-w.algoPct).toFixed(1)}% org`}>
+                      {/* algo% label encima de la barra */}
+                      <span className={`text-[8px] font-bold leading-none mb-0.5 ${isHighAlgo ? "text-orange-400" : w.algoPct > 15 ? "text-amber-500" : "text-slate-600"}`}>
+                        {w.algoPct > 0 ? `${Math.round(w.algoPct)}%` : ""}
+                      </span>
+                      {/* barra apilada */}
+                      <div className="w-full flex flex-col justify-end rounded-t-sm overflow-hidden" style={{height:`${barH}px`}}>
+                        <div style={{height:`${algoH}px`, background: isLast ? "#f97316" : "#f9731670"}} />
+                        <div style={{height:`${orgH}px`,  background: isLast ? "#10b981" : "#10b98160"}} />
+                      </div>
+                      {/* fecha / "Hoy" */}
+                      <span className={`text-[8px] leading-none mt-1 ${isLast ? "text-slate-200 font-semibold" : "text-slate-600"}`}>
+                        {w.label}
+                      </span>
                     </div>
-                    {isLast && <span className="text-[8px] text-slate-400 mt-0.5">Hoy</span>}
+                  );
+                })}
+              </div>
+              {/* Leyenda + resumen */}
+              <div className="flex items-center justify-between mt-3 pt-2.5 border-t border-slate-700/50">
+                <div className="flex items-center gap-3 text-[9px]">
+                  <span className="flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-sm inline-block bg-orange-500"/>
+                    <span className="text-slate-500">Algorítmico</span>
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-sm inline-block bg-emerald-500"/>
+                    <span className="text-slate-500">Orgánico</span>
+                  </span>
+                  <span className="text-slate-600">· barra más clara = semanas anteriores</span>
+                </div>
+                <div className="flex gap-4">
+                  <div className="text-right">
+                    <p className="text-[9px] text-slate-500">Tendencia algo</p>
+                    <p className={`text-xs font-bold ${insight.algoRatioTrend > 2 ? "text-rose-400" : insight.algoRatioTrend < -2 ? "text-emerald-400" : "text-slate-300"}`}>
+                      {insight.algoRatioTrend > 0 ? "↑ +" : insight.algoRatioTrend < 0 ? "↓ " : "→ "}
+                      {insight.algoRatioTrend > 0 ? "" : ""}{insight.algoRatioTrend}pp/sem
+                    </p>
                   </div>
-                );
-              })}
-            </div>
-            {/* Ratio trend summary */}
-            <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-700/50">
-              <div className="flex items-center gap-3">
-                <div>
-                  <p className="text-[10px] text-slate-500">Algo hoy</p>
-                  <p className="text-sm font-bold text-orange-400">{insight.algoRatioNow.toFixed(1)}%</p>
-                </div>
-                <div>
-                  <p className="text-[10px] text-slate-500">Tendencia</p>
-                  <p className={`text-sm font-bold ${insight.algoRatioTrend > 2 ? "text-rose-400" : insight.algoRatioTrend < -2 ? "text-emerald-400" : "text-slate-300"}`}>
-                    {insight.algoRatioTrend > 0 ? "+" : ""}{insight.algoRatioTrend}pp/sem
-                  </p>
-                </div>
-                <div>
-                  <p className="text-[10px] text-slate-500">Org momentum</p>
-                  <p className={`text-sm font-bold ${insight.orgMom > 0 ? "text-emerald-400" : insight.orgMom > -10 ? "text-amber-400" : "text-rose-400"}`}>
-                    {insight.orgMom > 0 ? "+" : ""}{insight.orgMom}%
-                  </p>
+                  <div className="text-right">
+                    <p className="text-[9px] text-slate-500">Streams/día hoy</p>
+                    <p className="text-xs font-bold text-slate-300">{fmt.k(insight.weeks.at(-1)?.total ?? 0)}</p>
+                  </div>
                 </div>
               </div>
-              {insight.algoOrgCorr !== null && (
-                <div className="text-right">
-                  <p className="text-[10px] text-slate-500">Conversión algo</p>
-                  <p className={`text-sm font-bold ${insight.algoOrgCorr > 0.4 ? "text-emerald-400" : insight.algoOrgCorr > 0.15 ? "text-amber-400" : "text-rose-400"}`}>
-                    r={insight.algoOrgCorr}
+            </div>
+          </div>
+        )}
+
+        {/* DM Ramp (si está activo) */}
+        {track.status === "active" && insight.algoRamp !== null && (
+          <div className="bg-slate-800/30 rounded-xl p-3 border border-slate-700/50 flex items-center gap-4">
+            <div className="shrink-0 text-center">
+              <p className="text-[9px] text-slate-500 mb-0.5">Días hasta pico algo</p>
+              <p className={`text-2xl font-black ${insight.algoRamp <= 7 ? "text-emerald-400" : insight.algoRamp <= 14 ? "text-amber-400" : "text-rose-400"}`}>
+                {insight.algoRamp}d
+              </p>
+            </div>
+            <div>
+              <p className="text-[10px] font-semibold text-slate-400 flex items-center gap-1 mb-0.5">
+                <Zap size={10} className="text-purple-400" />Activación DM
+              </p>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                {insight.algoRamp <= 7 ? "Activación rápida — Spotify lo boosteó inmediatamente. Buena señal de engagement." :
+                 insight.algoRamp <= 14 ? "Activación normal — el algoritmo tardó ~2 semanas en alcanzar el pico." :
+                 "Activación lenta — puede indicar engagement inicial bajo."}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* ══════════════════════════════════════════
+            SECCIÓN 3 — RECOMENDACIÓN + RIESGO
+        ══════════════════════════════════════════ */}
+        <div>
+          <div className="grid grid-cols-2 gap-3">
+            {/* Recomendación (acción primaria) */}
+            <div>
+              <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                <Target size={10} className="text-purple-400"/>
+                Recomendación
+              </p>
+              {insight.actions[0] && (
+                <div className={`rounded-xl p-3 border h-full
+                  ${insight.actions[0].color==="emerald"?"bg-emerald-500/8 border-emerald-500/25":
+                    insight.actions[0].color==="rose"?"bg-rose-500/8 border-rose-500/25":
+                    insight.actions[0].color==="amber"?"bg-amber-500/8 border-amber-500/25":
+                    insight.actions[0].color==="purple"?"bg-purple-500/8 border-purple-500/25":
+                    "bg-slate-800/40 border-slate-700"}`}>
+                  <p className={`text-xs font-bold mb-1.5
+                    ${insight.actions[0].color==="emerald"?"text-emerald-400":insight.actions[0].color==="rose"?"text-rose-400":insight.actions[0].color==="amber"?"text-amber-400":insight.actions[0].color==="purple"?"text-purple-400":"text-slate-400"}`}>
+                    {insight.actions[0].icon} {insight.actions[0].title}
                   </p>
+                  <p className="text-xs text-slate-400 leading-relaxed">{insight.actions[0].desc}</p>
                 </div>
               )}
             </div>
-          </div>
-        )}
-
-        {/* ── DM Ramp (si está en DM) ── */}
-        {track.status === "active" && insight.algoRamp !== null && (
-          <div className="bg-slate-800/30 rounded-xl p-3 border border-slate-700/50">
-            <p className="text-xs text-slate-500 font-semibold mb-2 uppercase tracking-wider flex items-center gap-1.5">
-              <Zap size={11} className="text-purple-400" />
-              Activación DM
-            </p>
-            <div className="flex items-center gap-4">
-              <div>
-                <p className="text-[10px] text-slate-500">Días hasta pico algo</p>
-                <p className={`text-lg font-black ${insight.algoRamp <= 7 ? "text-emerald-400" : insight.algoRamp <= 14 ? "text-amber-400" : "text-rose-400"}`}>
-                  {insight.algoRamp}d
-                </p>
+            {/* Riesgo (acciones secundarias) */}
+            <div>
+              <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                <AlertTriangle size={10} className="text-amber-400"/>
+                Riesgo
+              </p>
+              <div className="flex flex-col gap-2">
+                {insight.actions.slice(1).map((a, i) => (
+                  <div key={i} className={`rounded-xl p-2.5 border
+                    ${a.color==="emerald"?"bg-emerald-500/5 border-emerald-500/15":
+                      a.color==="rose"?"bg-rose-500/5 border-rose-500/15":
+                      a.color==="amber"?"bg-amber-500/5 border-amber-500/15":
+                      "bg-slate-800/30 border-slate-700/50"}`}>
+                    <p className={`text-[10px] font-bold mb-0.5
+                      ${a.color==="emerald"?"text-emerald-400":a.color==="rose"?"text-rose-400":a.color==="amber"?"text-amber-400":"text-slate-400"}`}>
+                      {a.icon} {a.title}
+                    </p>
+                    <p className="text-[10px] text-slate-500 leading-relaxed">{a.desc}</p>
+                  </div>
+                ))}
               </div>
-              <p className="text-xs text-slate-400 leading-relaxed flex-1">
-                {insight.algoRamp <= 7 ? "Activación rápida — Spotify comenzó a boostearlo inmediatamente. Track con buena señal de engagement." :
-                 insight.algoRamp <= 14 ? "Activación normal — el algoritmo tardó ~2 semanas en alcanzar su pico de boost." :
-                 "Activación lenta — el algoritmo tardó en boostearlo. Puede indicar engagement inicial bajo."}
-              </p>
             </div>
           </div>
-        )}
-
-        {/* ── Action cards ── */}
-        <div className="grid grid-cols-3 gap-3">
-          {insight.actions.map((a,i) => (
-            <div key={i} className={`rounded-xl p-3 border ${a.color==="emerald"?"bg-emerald-500/5 border-emerald-500/20":a.color==="rose"?"bg-rose-500/5 border-rose-500/20":a.color==="amber"?"bg-amber-500/5 border-amber-500/20":a.color==="purple"?"bg-purple-500/5 border-purple-500/20":"bg-slate-800/40 border-slate-700"}`}>
-              <p className={`text-xs font-bold mb-1.5 ${a.color==="emerald"?"text-emerald-400":a.color==="rose"?"text-rose-400":a.color==="amber"?"text-amber-400":a.color==="purple"?"text-purple-400":"text-slate-400"}`}>
-                {a.icon} {a.title}
-              </p>
-              <p className="text-xs text-slate-400 leading-relaxed">{a.desc}</p>
-            </div>
-          ))}
         </div>
 
-        {/* ── Historical context (collapsible) ── */}
+        {/* DM Score breakdown */}
+        <div className="bg-slate-800/20 rounded-xl p-3 border border-slate-700/30">
+          <p className="text-[9px] text-slate-500 font-semibold uppercase tracking-wider mb-2">Desglose DM Score</p>
+          <div className="grid grid-cols-4 gap-2">
+            {[
+              { label: "Algorítmico", pts: insight.dmScoreBreakdown.algoComp, max: 35, color: "#f97316" },
+              { label: "Orgánico",    pts: insight.dmScoreBreakdown.orgComp,  max: 25, color: "#10b981" },
+              { label: "Performance", pts: insight.dmScoreBreakdown.dmPerf,   max: 30, color: "#a855f7" },
+              { label: "Independ.",   pts: insight.dmScoreBreakdown.indComp,  max: 10, color: "#3b82f6" },
+            ].map(({label, pts, max, color}) => (
+              <div key={label}>
+                <div className="flex justify-between text-[8px] mb-0.5">
+                  <span className="text-slate-500">{label}</span>
+                  <span style={{color}} className="font-bold">{pts}/{max}</span>
+                </div>
+                <div className="h-1.5 rounded-full bg-slate-700/50">
+                  <div className="h-full rounded-full transition-all" style={{width:`${(pts/max)*100}%`, background:color}} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* ── Contexto histórico (collapsible) ── */}
         <div className="flex justify-end -mt-1">
           <button onClick={()=>setShowContext(c=>!c)}
             className="text-xs text-slate-500 hover:text-slate-300 transition-colors underline underline-offset-2">
@@ -3107,14 +3256,11 @@ const DMAuditTab = ({ track }) => {
           {endDateStr && <span className="text-xs text-amber-600 whitespace-nowrap">Salió: {endDateStr}</span>}
         </div>
         {/* Retention stats */}
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 gap-3">
           {[
             {label:"Avg Post-DM", value:fmt.k(dm.postDmAvg), sub:"streams/día", color:"text-white"},
-            {label:"Avg En DM",   value:fmt.k(dm.dmAvg),     sub:"streams/día (ref. sin baseline)", color:"text-purple-300"},
-            {label:"vs Piso Org", value:postVsFloor!=null?(postVsFloor>0?"+":"")+postVsFloor+"%":"—",
-              sub:`${fmt.k(postOrgFloorAvg)} piso est.`, color:postVsFloor==null?"text-slate-500":postVsFloor>=0?"text-cyan-400":"text-rose-400"},
-            {label:"Tendencia",   value:retentionTrend!=null?(retentionTrend>0?"+":"")+retentionTrend+"%":postDmSlice.length<28?"< 28d":"—",
-              sub:"últ 14d vs prim 14d", color:retentionTrend==null?"text-slate-500":retentionTrend>=0?"text-emerald-400":"text-amber-400"},
+            {label:"vs Durante DM", value:dm.postDmDelta!=null?(dm.postDmDelta>0?"+":"")+dm.postDmDelta+"%":"—",
+              sub:`${fmt.k(dm.dmAvg)} avg en DM`, color:dm.postDmDelta==null?"text-slate-500":dm.postDmDelta>=-15?"text-emerald-400":"text-rose-400"},
           ].map(c=>(
             <div key={c.label} className="bg-slate-900 border border-slate-800 rounded-xl p-4">
               <p className="text-xs text-slate-500 mb-1">{c.label}</p>
@@ -3180,6 +3326,100 @@ const DMAuditTab = ({ track }) => {
             </ComposedChart>
           </ResponsiveContainer>
         </div>
+
+        {/* ── P&L: ¿convino salir de DM? ── */}
+        {dm.dmCommPerDay > 0 && (() => {
+          const daysOut = postDmSlice.length;
+          const totalCommSaved  = +(dm.dmCommPerDay * daysOut).toFixed(2);
+          const totalRevLost    = +(Math.max(0, dm.revLostPerDay) * daysOut).toFixed(2);
+          const totalNetBalance = +(totalCommSaved - totalRevLost).toFixed(2);
+          const algoFullRev     = +(dm.campAlgoAvg * track.royalty * daysOut).toFixed(2);
+          const monthlyFactor   = daysOut > 0 ? 30 / daysOut : 1;
+          const monthlyBalance  = +(totalNetBalance * monthlyFactor).toFixed(2);
+          const verdict =
+            totalNetBalance > 0
+              ? {color:"emerald", icon:"✓ SALIR CONVINO",
+                 text:`Ahorraste $${totalCommSaved} en comisiones. La caída de streams costó $${totalRevLost}. Balance neto positivo: +$${totalNetBalance}.`}
+              : dm.postDmNetBalance > -0.001
+              ? {color:"amber", icon:"~ MONITOREAR",
+                 text:`El balance diario es positivo (+$${dm.postDmNetBalance.toFixed(4)}/día) pero los streams muestran caída (${dm.postDmDelta}%). Monitorear las próximas 2–4 semanas.`}
+              : {color:"rose", icon:"↻ CONSIDERAR REINGRESO",
+                 text:`El track pierde más revenue por streams caídos ($${Math.abs(dm.revLostPerDay).toFixed(4)}/día) de lo que ahorra en comisión ($${dm.dmCommPerDay.toFixed(4)}/día).${dm.postDmBreakeven?` Breakeven negativo en ~${dm.postDmBreakeven} días.`:""} Evaluar reingreso a DM.`};
+          const cv = {emerald:"bg-emerald-500/10 border-emerald-500/25 text-emerald-200",amber:"bg-amber-500/10 border-amber-500/25 text-amber-200",rose:"bg-rose-500/10 border-rose-500/25 text-rose-200"};
+          return (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <DollarSign size={14} className="text-emerald-400" />
+                <h3 className="text-sm font-semibold text-slate-200">Análisis Financiero — ¿Convino salir de DM?</h3>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-2">
+                  {[
+                    {label:"Comisión ahorrada (30% algo streams)",
+                     value:totalCommSaved, color:"text-emerald-400", sign:"+$",
+                     tip:`${fmt.exact(dm.campAlgoAvg)} algo/día × $${track.royalty} × 30% × ${daysOut}d`},
+                    {label:"Revenue perdido por caída de streams",
+                     value:totalRevLost, color:totalRevLost>0?"text-rose-400":"text-emerald-400",
+                     sign:totalRevLost>0?"-$":"+$",
+                     tip:`${fmt.exact(dm.streamsLostPerDay)} streams/día menos × $${track.royalty} × ${daysOut}d`},
+                    {label:"Balance neto acumulado",
+                     value:Math.abs(totalNetBalance), color:totalNetBalance>=0?"text-emerald-400":"text-rose-400",
+                     sign:totalNetBalance>=0?"+$":"-$",
+                     tip:`Proyección mensual: ${monthlyBalance>=0?"+$":"-$"}${Math.abs(monthlyBalance)}/mes`},
+                  ].map(row=>(
+                    <div key={row.label}>
+                      <div className="flex justify-between items-start mb-0.5">
+                        <span className="text-[10px] text-slate-500 leading-tight pr-2">{row.label}</span>
+                        <span className={`text-sm font-black whitespace-nowrap ${row.color}`}>{row.sign}{row.value}</span>
+                      </div>
+                      <p className="text-[9px] text-slate-700">{row.tip}</p>
+                      {row.label.includes("Balance") && (
+                        <div className="mt-1 h-1.5 rounded-full bg-slate-800">
+                          <div className="h-full rounded-full transition-all"
+                            style={{
+                              width:`${Math.min(100,Math.abs(totalNetBalance)/(Math.max(totalCommSaved,totalRevLost)||1)*100)}%`,
+                              background: totalNetBalance>=0?"#10b981":"#f43f5e"
+                            }} />
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3">
+                  <p className="text-xs font-semibold text-slate-400">Conversión algo → orgánico</p>
+                  {[
+                    {label:"Algo streams (en DM)", value:fmt.exact(dm.campAlgoAvg)+"/día", color:"text-orange-400"},
+                    {label:"Org streams (post-DM)", value:fmt.exact(dm.postDmOrgAvg)+"/día", color:"text-emerald-400"},
+                    {label:"Conversión", value:dm.orgConversion!=null?(dm.orgConversion>0?"+":"")+dm.orgConversion+"%":"—",
+                     color:dm.orgConversion==null?"text-slate-500":dm.orgConversion>=10?"text-emerald-400":dm.orgConversion>=-5?"text-amber-400":"text-rose-400"},
+                  ].map(row=>(
+                    <div key={row.label} className="flex justify-between text-xs">
+                      <span className="text-slate-500">{row.label}</span>
+                      <span className={`font-bold ${row.color}`}>{row.value}</span>
+                    </div>
+                  ))}
+                  <p className="text-[10px] text-slate-500 pt-1 border-t border-slate-800 leading-relaxed">
+                    {dm.orgConversion>=10?"✓ Los oyentes algo se convirtieron a orgánicos.":
+                     dm.orgConversion>=-5?"~ Conversión neutral — los oyentes algo no se quedan.":
+                     "↓ Los oyentes algo no convirtieron a orgánico."}
+                  </p>
+                </div>
+              </div>
+              {dm.postDmBreakeven != null && (
+                <div className="bg-rose-500/8 border border-rose-500/20 rounded-lg p-3">
+                  <p className="text-xs text-rose-300 leading-relaxed">
+                    <AlertTriangle size={11} className="inline mr-1" />
+                    La pérdida acumulada supera el ahorro en <strong>{dm.postDmBreakeven} días</strong> desde la salida. Considerar reingresar a DM.
+                  </p>
+                </div>
+              )}
+              <div className={`border-2 rounded-xl px-5 py-4 ${cv[verdict.color]}`}>
+                <p className="text-xs font-black tracking-wider mb-1">{verdict.icon}</p>
+                <p className="text-xs leading-relaxed">{verdict.text}</p>
+              </div>
+            </div>
+          );
+        })()}
       </div>
     );
   }
