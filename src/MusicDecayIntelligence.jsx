@@ -456,7 +456,7 @@ const _dedupedTracks = (() => {
       continue;
     }
     // Elegir el track con mayor peak reciente como "principal"
-    const peak = (t) => Math.max(...(RAW_STREAM_DATA[t.id]?.streams?.slice(-30) ?? [0]));
+    const peak = (t) => Math.max(...((RAW_STREAM_DATA[t.id] ?? RAW_STREAM_DATA_FLORECE[t.id])?.streams?.slice(-30) ?? [0]));
     group.sort((a, b) => peak(b) - peak(a));
     const main = group[0];
 
@@ -464,13 +464,13 @@ const _dedupedTracks = (() => {
     // Usamos sólo el track principal (mayor peak reciente); el fingerprint evita data duplicada.
     // Fingerprint para detectar duplicados exactos (misma data reportada distinto ID)
     const _fp = (id) => {
-      const s = RAW_STREAM_DATA[id]?.streams ?? [];
+      const s = (RAW_STREAM_DATA[id] ?? RAW_STREAM_DATA_FLORECE[id])?.streams ?? [];
       return s.slice(0,5).join(",") + "|" + s.slice(-5).join(",");
     };
     const seenFp = new Set();
     const dateMap = {};
     for (const t of group) {
-      const raw = RAW_STREAM_DATA[t.id];
+      const raw = RAW_STREAM_DATA[t.id] ?? RAW_STREAM_DATA_FLORECE[t.id];
       if (!raw) continue;
       // Cada Spotify ID es una grabación distinta — nunca sumar entradas secundarias.
       // Sólo se procesa el track principal (el de mayor peak reciente).
@@ -507,7 +507,7 @@ _dedupedTracks.forEach(t => TRACKS_CFG.push(t));
 //  BUILD HISTORY FROM REAL DATA
 // ════════════════════════════════════════════════════════════════
 const buildHistoryFromReal = (tid, rawOverride = null) => {
-  const raw = rawOverride ?? RAW_STREAM_DATA[tid];
+  const raw = rawOverride ?? RAW_STREAM_DATA[tid] ?? RAW_STREAM_DATA_FLORECE[tid];
   if (!raw) return [];
   // Trim trailing zeros (días incompletos, ej. el día de hoy sin data final)
   let endIdx = raw.streams.length;
@@ -2429,7 +2429,7 @@ const DM_SLOTS = 30;
 
 // Convierte fecha "YYYY-MM-DD" al índice en el array dates del track
 const _dateToIdx = (trackId, dateStr) => {
-  const dates = RAW_STREAM_DATA[trackId]?.dates ?? [];
+  const dates = (RAW_STREAM_DATA[trackId] ?? RAW_STREAM_DATA_FLORECE[trackId])?.dates ?? [];
   const idx = dates.indexOf(dateStr);
   if (idx >= 0) return idx;
   // Si la fecha exacta no está, buscar la más cercana posterior
@@ -3366,9 +3366,9 @@ const ChartmetricModal = ({ onClose, onSync }) => {
       if (!cmId) { setSyncLog(l => [...l, `⟳ ${cfg.id}: sin CM ID, usando datos embebidos`]); continue; }
       try {
         setSyncLog(l => [...l, `↓ Fetching ${cfg.id} (CM ${cmId})…`]);
-        const raw = RAW_STREAM_DATA[cfg.id];
+        const raw = RAW_STREAM_DATA[cfg.id] ?? RAW_STREAM_DATA_FLORECE[cfg.id];
         const result = await cmFetchStreams(accessToken, cmId, since, until);
-        liveData[cfg.id] = { name: raw?.name ?? cfg.id, artist: raw?.artist ?? "NTVG 2", ...result };
+        liveData[cfg.id] = { name: raw?.name ?? cfg.id, artist: raw?.artist ?? "Florece", ...result };
         setSyncLog(l => [...l, `✓ ${cfg.id}: ${result.dates.length} días`]);
       } catch(e) {
         setSyncLog(l => [...l, `✗ ${cfg.id}: ${e.message}`]);
@@ -3435,7 +3435,7 @@ const ChartmetricModal = ({ onClose, onSync }) => {
             </div>
             <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
               {TRACKS_CFG.map(cfg => {
-                const raw = RAW_STREAM_DATA[cfg.id];
+                const raw = RAW_STREAM_DATA[cfg.id] ?? RAW_STREAM_DATA_FLORECE[cfg.id];
                 const ss = searchStatus[cfg.id];
                 return (
                   <div key={cfg.id} className="flex items-center gap-2">
