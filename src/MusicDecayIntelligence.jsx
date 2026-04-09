@@ -829,7 +829,7 @@ const buildCatalog = (liveData = {}) => TRACKS_CFG.map(cfg => {
     const orgGross  = orgInc  != null ? +(orgInc  * cfg.royalty).toFixed(2) : null;
     // Discovery Mode cobra 30% sobre TODOS los streams algorítmicos (no solo incrementales)
     const comm = +(campProgObs * cfg.royalty * CFG.DM_CUT).toFixed(2);
-    // Post-DM: compare avg streams during DM vs after leaving DM (completed tracks only)
+    // Post-DM: análisis completo de P&L post-campaña
     const postDmSlice = cfg.dmEnd != null ? history.slice(cfg.dmEnd) : [];
     const dmAvg      = camp.length > 0 ? +(obs / camp.length).toFixed(0) : null;
     const postDmAvg  = postDmSlice.length > 0
@@ -837,6 +837,34 @@ const buildCatalog = (liveData = {}) => TRACKS_CFG.map(cfg => {
       : null;
     const postDmDelta = (postDmAvg != null && dmAvg != null && dmAvg > 0)
       ? +((postDmAvg / dmAvg - 1) * 100).toFixed(1)
+      : null;
+    // ── Post-DM algo/org split + revenue analysis ──
+    const postDmAlgoAvg = postDmSlice.length > 0
+      ? Math.round(postDmSlice.reduce((s,d) => s + (d.programmedStreams ?? 0), 0) / postDmSlice.length) : 0;
+    const postDmOrgAvg = postDmSlice.length > 0
+      ? Math.round(postDmSlice.reduce((s,d) => s + Math.max(0, d.streams - (d.programmedStreams ?? 0)), 0) / postDmSlice.length) : 0;
+    const preDmOrgAvg = preDmSlice.length > 0
+      ? Math.round(preDmSlice.reduce((s,d) => s + Math.max(0, d.streams - (d.programmedStreams ?? 0)), 0) / preDmSlice.length) : 0;
+    const dmOrgAvg = camp.length > 0 ? Math.round(campOrgObs / camp.length) : 0;
+    // Revenue diario: durante DM (con comisión) vs post-DM (sin comisión DM)
+    const dmRevPerDay = camp.length > 0
+      ? +((obs * cfg.royalty - comm) / camp.length).toFixed(4) : 0;
+    const postDmRevPerDay = postDmSlice.length > 0
+      ? +((postDmSlice.reduce((s,d) => s + d.streams, 0) * cfg.royalty) / postDmSlice.length).toFixed(4) : 0;
+    const revDeltaPerDay = +(postDmRevPerDay - dmRevPerDay).toFixed(4);
+    // Ahorro comisión: lo que se pagaba por día en DM
+    const dmCommPerDay = camp.length > 0 ? +(comm / camp.length).toFixed(4) : 0;
+    // Conversión algo→org: ¿los oyentes algo se volvieron orgánicos?
+    const orgConversion = preDmOrgAvg > 0 ? +((postDmOrgAvg / preDmOrgAvg - 1) * 100).toFixed(1) : null;
+    // Streams perdidos por salir de DM (vs promedio en DM)
+    const streamsLostPerDay = postDmAvg != null && dmAvg != null ? Math.round(+dmAvg - +postDmAvg) : 0;
+    // Revenue perdido por esos streams vs ahorro comisión
+    const revLostPerDay = +(streamsLostPerDay * cfg.royalty).toFixed(4);
+    // Balance neto: ahorro de comisión - pérdida de streams
+    const postDmNetBalance = +(dmCommPerDay - revLostPerDay).toFixed(4);
+    // Breakeven: si balance es negativo, cuántos días para que la pérdida acumulada supere lo ahorrado
+    const postDmBreakeven = postDmNetBalance < 0 && dmCommPerDay > 0
+      ? Math.ceil(Math.abs(comm) / Math.abs(revLostPerDay - dmCommPerDay))
       : null;
     // net = gross revenue (incremental) minus commission on ALL algo streams
     const net = gross != null ? +(gross - comm).toFixed(2) : null;
@@ -880,6 +908,10 @@ const buildCatalog = (liveData = {}) => TRACKS_CFG.map(cfg => {
       algoDelta, algoDeltaAbs, preDmAlgoAvg: Math.round(preDmAlgoAvg), campAlgoAvg: Math.round(campAlgoAvg),
       noBaseline: !hasBaseline,
       dmAvg, postDmAvg, postDmDelta,
+      postDmAlgoAvg, postDmOrgAvg, preDmOrgAvg, dmOrgAvg,
+      dmRevPerDay, postDmRevPerDay, revDeltaPerDay,
+      dmCommPerDay, orgConversion, streamsLostPerDay,
+      revLostPerDay, postDmNetBalance, postDmBreakeven,
       pausedDays, pausedStreams,
       cannibalized, cannibalizationCost,
       dmPeriods,
@@ -3288,20 +3320,113 @@ const DMAuditTab = ({ track }) => {
         </ResponsiveContainer>
       </div>
 
-      {/* ── Performance Post-DM (completed tracks only) ── */}
+      {/* ── Análisis Post-DM (completed tracks only) ── */}
       {status==="completed" && postDmSlice.length > 0 && (
         <div className="space-y-4">
           {/* Completion banner */}
           <div className="flex items-center gap-3 bg-amber-500/8 border border-amber-500/25 rounded-xl px-5 py-3">
             <CheckCircle size={15} className="text-amber-400 flex-shrink-0" />
             <div className="flex-1 min-w-0">
-              <span className="text-sm font-semibold text-amber-300">Campaña DM Finalizada</span>
+              <span className="text-sm font-semibold text-amber-300">Análisis Post-DM</span>
               {endDateStr && <span className="text-xs text-amber-500/80 ml-2">· Completada el {endDateStr}</span>}
             </div>
             <div className="text-xs text-amber-600 whitespace-nowrap">{postDmSlice.length} días desde el fin</div>
           </div>
 
-          {/* Post-DM stat cards */}
+          {/* ── P&L: ¿convino salir de DM? ── */}
+          <div className="grid grid-cols-2 gap-4">
+            {/* Left: Waterfall financiero post-DM */}
+            <div className="bg-slate-900 rounded-xl border border-slate-800 p-5">
+              <h3 className="text-sm font-semibold text-slate-200 mb-1">Balance Diario: Dentro vs Fuera de DM</h3>
+              <p className="text-xs text-slate-500 mb-4">Revenue por día — con comisión (en DM) vs sin comisión (post-DM)</p>
+              <div className="space-y-2">
+                {[
+                  {label:"Revenue/día en DM (neto de comisión)",value:dm.dmRevPerDay,color:"text-purple-400",prefix:"$"},
+                  {label:`  Comisión/día pagada`,value:dm.dmCommPerDay,color:"text-rose-400",prefix:"−$",sub:true},
+                  {label:"Revenue/día post-DM (sin comisión)",value:dm.postDmRevPerDay,color:"text-emerald-400",prefix:"$"},
+                  {label:`  Streams perdidos/día`,value:dm.streamsLostPerDay,color:dm.streamsLostPerDay>0?"text-rose-400":"text-emerald-400",
+                    prefix:dm.streamsLostPerDay>0?"−":"+"  ,suffix:" streams",isFmt:true,sub:true},
+                  {label:"Balance neto/día (salir vs quedarse)",value:dm.postDmNetBalance,
+                    color:dm.postDmNetBalance>=0?"text-emerald-400":"text-rose-400",
+                    prefix:dm.postDmNetBalance>=0?"+$":"−$",abs:true,border:true},
+                ].map(row=>(
+                  <div key={row.label} className={`flex items-center justify-between p-3 rounded-lg ${row.border?"bg-slate-800 border border-slate-700":"bg-slate-800/40"}`}>
+                    <span className={`text-xs ${row.sub?"text-slate-500":"text-slate-300"}`}>{row.label}</span>
+                    <span className={`text-sm font-bold ${row.color}`}>
+                      {row.isFmt
+                        ? `${row.prefix}${fmt.exact(Math.abs(row.value))}${row.suffix||""}`
+                        : `${row.prefix}${(row.abs?Math.abs(row.value):row.value).toFixed(4)}`}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              {dm.postDmBreakeven != null && (
+                <div className="mt-3 bg-rose-500/8 border border-rose-500/20 rounded-lg p-3">
+                  <p className="text-xs text-rose-300 leading-relaxed">
+                    <AlertTriangle size={11} className="inline mr-1" />
+                    Si los streams se mantienen en este nivel, la pérdida acumulada supera el ahorro de comisión en <strong>{dm.postDmBreakeven} días</strong>. Considerar reingresar a DM.
+                  </p>
+                </div>
+              )}
+              {dm.postDmNetBalance >= 0 && (
+                <div className="mt-3 bg-emerald-500/8 border border-emerald-500/20 rounded-lg p-3">
+                  <p className="text-xs text-emerald-300 leading-relaxed">
+                    <CheckCircle size={11} className="inline mr-1" />
+                    Salir de DM es rentable: el ahorro en comisión ({`$${dm.dmCommPerDay.toFixed(4)}/día`}) supera la pérdida de streams. Beneficio neto: <strong>+${dm.postDmNetBalance.toFixed(4)}/día</strong>.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Right: Conversión algo→orgánico */}
+            <div className="bg-slate-900 rounded-xl border border-slate-800 p-5">
+              <h3 className="text-sm font-semibold text-slate-200 mb-1">Conversión Algo → Orgánico</h3>
+              <p className="text-xs text-slate-500 mb-4">¿Los oyentes algorítmicos se convirtieron en orgánicos?</p>
+              <div className="space-y-3">
+                {[
+                  {phase:"Pre-DM",org:dm.preDmOrgAvg,algo:dm.preDmAlgoAvg,color:"#64748b"},
+                  {phase:"En DM",org:dm.dmOrgAvg,algo:dm.campAlgoAvg,color:"#a855f7"},
+                  {phase:"Post-DM",org:dm.postDmOrgAvg,algo:dm.postDmAlgoAvg,color:"#10b981"},
+                ].map(row=>{
+                  const total = (row.org??0)+(row.algo??0);
+                  const orgPct = total>0?Math.round(((row.org??0)/total)*100):0;
+                  const algoPct = 100-orgPct;
+                  return (
+                    <div key={row.phase}>
+                      <div className="flex justify-between text-xs mb-1">
+                        <span className="text-slate-400">{row.phase}</span>
+                        <span className="text-white font-bold">{fmt.exact(total)}/día</span>
+                      </div>
+                      <div className="flex h-5 rounded-full overflow-hidden bg-slate-800">
+                        <div className="flex items-center justify-center text-[9px] font-bold text-white" style={{width:`${orgPct}%`,background:"#10b981"}}>{orgPct>8?`${orgPct}% org`:""}</div>
+                        <div className="flex items-center justify-center text-[9px] font-bold text-white" style={{width:`${algoPct}%`,background:"#f97316"}}>{algoPct>8?`${algoPct}% algo`:""}</div>
+                      </div>
+                      <div className="flex justify-between text-[10px] mt-0.5">
+                        <span className="text-cyan-500">{fmt.exact(row.org??0)} org</span>
+                        <span className="text-orange-400">{fmt.exact(row.algo??0)} algo</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              {/* Conversion signal */}
+              {dm.orgConversion != null && (
+                <div className={`mt-4 border rounded-xl px-4 py-3 text-xs leading-relaxed ${
+                  dm.orgConversion >= 10 ? "bg-emerald-500/8 border-emerald-500/20 text-emerald-300"
+                  : dm.orgConversion >= -5 ? "bg-amber-500/8 border-amber-500/20 text-amber-300"
+                  : "bg-rose-500/8 border-rose-500/20 text-rose-300"
+                }`}>
+                  {dm.orgConversion >= 10
+                    ? <><span className="font-bold mr-1">✓</span>Orgánico post-DM creció <strong>+{dm.orgConversion}%</strong> vs pre-DM. Los oyentes algorítmicos se convirtieron en oyentes regulares.</>
+                    : dm.orgConversion >= -5
+                    ? <><span className="font-bold mr-1">~</span>Orgánico post-DM estable ({dm.orgConversion>0?"+":""}{dm.orgConversion}% vs pre-DM). Los oyentes algo no se retuvieron como orgánicos, pero tampoco cayó.</>
+                    : <><span className="font-bold mr-1">↓</span>Orgánico post-DM cayó <strong>{dm.orgConversion}%</strong> vs pre-DM. DM no logró convertir oyentes algorítmicos en orgánicos — posible canibalización residual.</>}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* ── Stream retention cards ── */}
           <div className="grid grid-cols-4 gap-3">
             {[
               {
@@ -3337,19 +3462,24 @@ const DMAuditTab = ({ track }) => {
             ))}
           </div>
 
-          {/* Signal text */}
+          {/* ── Veredicto: reingresar o quedarse fuera ── */}
           {(() => {
-            const aboveFloor = postVsFloor != null && postVsFloor >= 0;
+            const netPos = dm.postDmNetBalance >= 0;
+            const orgGrew = dm.orgConversion != null && dm.orgConversion >= 5;
             const stableDecay = dm.postDmDelta != null && dm.postDmDelta >= -20;
-            const signal = aboveFloor && stableDecay
-              ? { color: "emerald", icon: "✓", text: `El track retiene streams por encima del piso orgánico (+${postVsFloor}%). La performance post-DM es saludable.` }
-              : aboveFloor
-              ? { color: "amber", icon: "~", text: `El track mantiene el piso orgánico pero muestra caída respecto al período DM (${dm.postDmDelta}%). Comportamiento esperado post-campaña.` }
-              : { color: "rose", icon: "↓", text: `Los streams post-DM están por debajo del piso orgánico estimado. Posible sobreestimación del floor o decay acelerado.` };
-            const cv = { emerald: "bg-emerald-500/8 border-emerald-500/20 text-emerald-300", amber: "bg-amber-500/8 border-amber-500/20 text-amber-300", rose: "bg-rose-500/8 border-rose-500/20 text-rose-300" };
+            const verdict = netPos && (orgGrew || stableDecay)
+              ? {color:"emerald", icon:"✓ MANTENER FUERA",
+                 text:`Salir de DM fue la decisión correcta. ${orgGrew ? `Orgánico creció +${dm.orgConversion}% y ` : ""}el ahorro en comisión (${fmt.usd(dm.dmCommPerDay)}/día) compensa cualquier pérdida de streams.`}
+              : netPos
+              ? {color:"amber", icon:"~ MONITOREAR",
+                 text:`El balance diario es positivo (+$${dm.postDmNetBalance.toFixed(4)}/día) pero los streams muestran caída (${dm.postDmDelta}%). Monitorear las próximas 2-4 semanas antes de decidir.`}
+              : {color:"rose", icon:"↻ CONSIDERAR REINGRESO",
+                 text:`El track pierde más revenue por streams caídos ($${Math.abs(dm.revLostPerDay).toFixed(4)}/día) de lo que ahorra en comisión ($${dm.dmCommPerDay.toFixed(4)}/día). ${dm.postDmBreakeven?`Breakeven negativo en ~${dm.postDmBreakeven} días.`:""} Evaluar reingreso a DM.`};
+            const cv = {emerald:"bg-emerald-500/10 border-emerald-500/25 text-emerald-200",amber:"bg-amber-500/10 border-amber-500/25 text-amber-200",rose:"bg-rose-500/10 border-rose-500/25 text-rose-200"};
             return (
-              <div className={`border rounded-xl px-4 py-3 text-xs leading-relaxed ${cv[signal.color]}`}>
-                <span className="font-bold mr-1">{signal.icon}</span>{signal.text}
+              <div className={`border-2 rounded-xl px-5 py-4 ${cv[verdict.color]}`}>
+                <p className="text-sm font-black mb-1">{verdict.icon}</p>
+                <p className="text-xs leading-relaxed opacity-90">{verdict.text}</p>
               </div>
             );
           })()}
