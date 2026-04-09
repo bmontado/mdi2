@@ -614,69 +614,77 @@ const computeBaseline = (history, dmStart) => {
 };
 
 // ════════════════════════════════════════════════════════════════
-//  BASELINE FORECAST (projects EWLS N days beyond last data point)
+//  BASELINE FORECAST — Hybrid: recent anchor + recentK decay + DOW + CI
+//  Anchors on exp-weighted avg of last 15 organic days,
+//  applies recentK (28-day decay slope) for projection,
+//  corrects for day-of-week patterns from recent 28 days,
+//  and estimates CI from residual variance of that window.
 // ════════════════════════════════════════════════════════════════
-const appendForecast = (history, dmStart) => {
-  if (dmStart == null || history.length < 7) return history;
-  const TRAIN_EXT = 90;
-  const tStart = Math.max(0, dmStart - TRAIN_EXT);
-  const trainRaw = history.slice(tStart, dmStart);
-  if (trainRaw.length < 7) return history;
-  // Winsorize; use ORGANIC streams (total − programmed) to avoid algo-boost inflation in forecast
-  const sorted = [...trainRaw.map(d => d.streams)].sort((a,b) => a-b);
-  const p97 = sorted[Math.min(Math.floor(sorted.length * 0.97), sorted.length-1)];
-  const train = trainRaw.map(d => ({
-    ...d,
-    streams: Math.max(1, Math.min(d.streams, p97) - (d.programmedStreams ?? 0))
-  }));
-  const lam = Math.log(2) / CFG.HALF_LIFE;
-  const w = train.map((_, i) => Math.exp(-lam * (train.length - 1 - i)));
-  const wSum = w.reduce((a,b) => a+b, 0);
-  const nw = w.map(x => x / wSum);
-  const logS = train.map(d => Math.log(d.streams + 1));
-  const wMx = train.reduce((s,d,i) => s + d.day * nw[i], 0);
-  const wMl = logS.reduce((s,v,i) => s + v * nw[i], 0);
-  let slopeL = 0;
-  if (train.length >= 28) {
-    const num = train.reduce((s,d,i) => s + nw[i]*(d.day-wMx)*(logS[i]-wMl), 0);
-    const den = train.reduce((s,d,i) => s + nw[i]*(d.day-wMx)**2, 0);
-    slopeL = den > 0 ? num/den : 0;
-    const maxSlopeL = 0.05 / 7;
-    slopeL = Math.max(-maxSlopeL, Math.min(maxSlopeL, slopeL));
-  }
-  const dowS = new Array(7).fill(0), dowC = new Array(7).fill(0);
-  train.forEach((d,i) => {
-    const pred = wMl + slopeL*(d.day-wMx);
-    dowS[d.dow] += (logS[i]-pred)*nw[i]; dowC[d.dow] += nw[i];
-  });
-  const rawDow = dowS.map((s,i) => dowC[i]>0 ? s/dowC[i] : 0);
-  const meanDow = rawDow.reduce((a,b)=>a+b,0)/7;
-  const dow7L = rawDow.map(c => (c-meanDow)*CFG.RIDGE);
-  const resid = train.map((d,i) => logS[i]-(wMl+slopeL*(d.day-wMx)+dow7L[d.dow]));
-  const stdR = Math.sqrt(resid.reduce((s,r)=>s+r*r,0)/resid.length);
-  // Anchor on organic level (total − programmed) at last pre-DM day
-  const anchorPt = history[dmStart-1];
-  const anchorTotal = anchorPt?.streams || Math.round(Math.exp(wMl)-1);
-  const anchorProg  = anchorPt?.programmedStreams ?? 0;
-  const anchorStreams = Math.max(1, anchorTotal - anchorProg);
+const appendForecast = (history) => {
+  if (history.length < 14) return history;
+
+  // ── 1. Recent window: last 28 days (for decay + dow), last 15 for anchor ──
+  const ANCHOR_WIN = 15;
+  const RECENT_WIN = 28;
+  const recent28 = history.slice(-Math.min(RECENT_WIN, history.length));
+  const recent15 = history.slice(-Math.min(ANCHOR_WIN, history.length));
+
+  // Organic streams (total − programmed) to avoid algo inflation
+  const org28 = recent28.map(d => Math.max(1, d.streams - (d.programmedStreams ?? 0)));
+  const org15 = recent15.map(d => Math.max(1, d.streams - (d.programmedStreams ?? 0)));
+
+  // ── 2. Anchor: exp-weighted average of last 15 organic days ──
+  //    Half-life 5 days → recent days dominate, but smooths spikes
+  const anchorLam = Math.log(2) / 5;
+  const aw = org15.map((_, i) => Math.exp(-anchorLam * (org15.length - 1 - i)));
+  const awSum = aw.reduce((a,b) => a+b, 0);
+  const anchorStreams = Math.max(1, Math.round(org15.reduce((s, v, i) => s + v * aw[i], 0) / awSum));
   const anchorL = Math.log(anchorStreams + 1);
-  const anchorDay = anchorPt?.day ?? history.at(-1).day;
+
+  // ── 3. Decay rate: recentK from last 28 days (log-linear regression) ──
+  const logOrg28 = org28.map(v => Math.log(v + 1));
+  const rn = org28.length, rMx = (rn - 1) / 2;
+  const rMl = logOrg28.reduce((s, v) => s + v, 0) / rn;
+  const rNum = logOrg28.reduce((s, v, i) => s + (i - rMx) * (v - rMl), 0);
+  const rDen = logOrg28.reduce((s, _, i) => s + (i - rMx) ** 2, 0);
+  // Negative slope = decay; clamp to prevent extreme projections
+  let decaySlope = rDen > 0 ? rNum / rDen : 0;
+  const maxSlope = 0.05 / 7; // cap ~0.7%/day
+  decaySlope = Math.max(-maxSlope, Math.min(maxSlope, decaySlope));
+
+  // ── 4. Day-of-week correction from recent 28 days ──
+  const dowS = new Array(7).fill(0), dowC = new Array(7).fill(0);
+  recent28.forEach((d, i) => {
+    const pred = rMl + decaySlope * (i - rMx);
+    const residDow = logOrg28[i] - pred;
+    dowS[d.dow] += residDow;
+    dowC[d.dow] += 1;
+  });
+  const rawDow = dowS.map((s, i) => dowC[i] > 0 ? s / dowC[i] : 0);
+  const meanDow = rawDow.reduce((a, b) => a + b, 0) / 7;
+  const dow7L = rawDow.map(c => (c - meanDow) * CFG.RIDGE);
+
+  // ── 5. CI: residual std from recent 28 days ──
+  const resid = recent28.map((d, i) => logOrg28[i] - (rMl + decaySlope * (i - rMx) + dow7L[d.dow]));
+  const stdR = Math.sqrt(resid.reduce((s, r) => s + r * r, 0) / resid.length);
+
+  // ── 6. Generate forecast ──
   const lastPt = history.at(-1);
   const forecast = [];
   for (let i = 1; i <= CFG.FORECAST_DAYS; i++) {
     const fDay = lastPt.day + i;
     const fDow = (lastPt.dow + i) % 7;
-    const dfa = fDay - anchorDay;
-    const blL = anchorL + slopeL*dfa + dow7L[fDow];
-    const bl  = Math.max(Math.round(Math.exp(blL) - 1), Math.round(anchorStreams * 0.05));
-    const horizon = history.length - dmStart + i;
-    const ci = CFG.CI * stdR * Math.sqrt(1 + horizon/train.length);
+    // Project from anchor using decay slope + dow correction
+    const blL = anchorL + decaySlope * i + dow7L[fDow];
+    const bl = Math.max(Math.round(Math.exp(blL) - 1), Math.round(anchorStreams * 0.05));
+    // CI widens with horizon
+    const ci = CFG.CI * stdR * Math.sqrt(1 + i / rn);
     const fDate = new Date(lastPt.date + 'T12:00:00');
     fDate.setDate(fDate.getDate() + i);
-    const mm = fDate.getMonth()+1, dd = fDate.getDate();
+    const mm = fDate.getMonth() + 1, dd = fDate.getDate();
     forecast.push({
       day: fDay, dow: fDow, streams: null,
-      date: fDate.toISOString().slice(0,10),
+      date: fDate.toISOString().slice(0, 10),
       label: `${mm}/${dd}`, isForecast: true,
       baseline: bl,
       ci_lo: Math.round(Math.max(Math.exp(blL - ci) - 1, 0)),
@@ -1782,7 +1790,7 @@ const DecayTab = ({ track, catalog }) => {
   const { metrics, history, dmStart, dmEnd, dmPauseIdx, dmResumeIdx } = track;
 
   // All hooks must be called unconditionally (Rules of Hooks)
-  const withForecast = useMemo(()=> history?.length ? appendForecast(history, dmStart) : [], [history,dmStart]);
+  const withForecast = useMemo(()=> history?.length ? appendForecast(history) : [], [history]);
   const lastActualLabel = history?.at(-1)?.label;
   const lastActualIdx = (history?.length ?? 1) - 1;
 
