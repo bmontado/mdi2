@@ -1859,146 +1859,160 @@ const DecayTab = ({ track, catalog }) => {
 
   // ── Dynamic insight computation (3-axis: lifecycle · window score · DM outcome intel) ──
   const insight = useMemo(() => {
-    const empty = { score:0, scoreColor:"slate", scoreLabel:"N/A", signalColor:"slate", signalTitle:"", signalText:"", actions:[], vsStreams:0, vsK:0, vsLift:null, avgLift:0,
-      lifecycle:{ stage:"unknown", label:"—", color:"slate", desc:"" }, windowScore:0, windowStatus:"CERRADA", windowColor:"rose", windowWeeks:0, dmIntel:{ n:0, successRate:null, avgLiftSuccess:null, successProfile:null, similarToSuccess:null } };
-    if (!metrics) return empty;
-    const m = metrics ?? {};
-    const dm = track.dm ?? {};
-    const src = track.sources ?? {};
+    if (!metrics || !history?.length) return null;
+    const m   = metrics;
+    const dm  = track.dm ?? {};
     const activeCatalog = (catalog ?? []).filter(t => t.status === "active" && t.dm?.liftPct != null);
-    const avgLift    = activeCatalog.length ? activeCatalog.reduce((s,t)=>s+t.dm.liftPct,0)/activeCatalog.length : 0;
-    const avgK       = (catalog ?? []).filter(t=>t.metrics?.structK).reduce((s,t,_,a)=>s+t.metrics.structK/a.length,0);
-    const avgStreams  = (catalog ?? []).filter(t=>t.metrics?.avgStreams).reduce((s,t,_,a)=>s+t.metrics.avgStreams/a.length,0);
+    const avgLift   = activeCatalog.length ? activeCatalog.reduce((s,t)=>s+t.dm.liftPct,0)/activeCatalog.length : 0;
+    const avgK      = (catalog ?? []).filter(t=>t.metrics?.structK).reduce((s,t,_,a)=>s+t.metrics.structK/a.length,0);
 
-    // ── Axis 1: Lifecycle detection ──────────────────────────────
+    // ── 1. ORGANIC series (total − algo) ──────────────────────────
+    const orgHistory = history.filter(d => !d.isForecast).map(d => ({
+      ...d,
+      orgStreams: Math.max(0, d.streams - (d.programmedStreams ?? 0)),
+    }));
+
+    // Per-week buckets (last 8 weeks)
+    const weeks = [];
+    const actual = orgHistory.filter(d => d.streams > 0);
+    for (let w = 7; w >= 0; w--) {
+      const slice = actual.slice(-(w+1)*7, w > 0 ? -w*7 : undefined);
+      if (!slice.length) continue;
+      const totStr = slice.reduce((s,d)=>s+d.streams,0);
+      const totOrg = slice.reduce((s,d)=>s+d.orgStreams,0);
+      const totAlg = slice.reduce((s,d)=>s+(d.programmedStreams??0),0);
+      weeks.push({
+        label: `W-${w}`,
+        total: Math.round(totStr/slice.length),
+        organic: Math.round(totOrg/slice.length),
+        algo: Math.round(totAlg/slice.length),
+        algoPct: totStr > 0 ? +((totAlg/totStr)*100).toFixed(1) : 0,
+      });
+    }
+
+    // ── 2. ORGANIC-only metrics ───────────────────────────────────
+    const org28 = actual.slice(-28).map(d => d.orgStreams);
+    const org56 = actual.slice(-56, -28).map(d => d.orgStreams);
+    const orgAvg28 = org28.length ? org28.reduce((s,v)=>s+v,0)/org28.length : 0;
+    const orgAvg56 = org56.length ? org56.reduce((s,v)=>s+v,0)/org56.length : orgAvg28;
+    const orgMom   = orgAvg56 > 0 ? +((orgAvg28/orgAvg56-1)*100).toFixed(1) : 0;
+
+    // Organic decay rate (28d log-linear)
+    const orgLogVals = org28.map(v => Math.log(Math.max(v,1)));
+    const on = org28.length, oMx = (on-1)/2;
+    const oMl = orgLogVals.reduce((s,v)=>s+v,0)/on;
+    const oNum = orgLogVals.reduce((s,v,i)=>s+(i-oMx)*(v-oMl),0);
+    const oDen = org28.reduce((s,_,i)=>s+(i-oMx)**2,0);
+    const orgK  = Math.max(0, -(oDen>0?oNum/oDen:0));
+
+    // ── 3. ALGO RATIO TREND (week-over-week) ──────────────────────
+    const algoRatioTrend = weeks.length >= 2
+      ? +(weeks.at(-1).algoPct - weeks.at(-2).algoPct).toFixed(1)
+      : 0;
+    const algoRatioNow = weeks.at(-1)?.algoPct ?? 0;
+
+    // ── 4. ALGO→ORGANIC CONVERSION (lag-1 correlation) ────────────
+    // Does a day with high algo streams predict higher organic next day?
+    let algoOrgCorr = null;
+    if (actual.length >= 14) {
+      const n = actual.length - 1;
+      const algos = actual.slice(0, n).map(d => d.programmedStreams ?? 0);
+      const orgsNext = actual.slice(1).map(d => d.orgStreams);
+      const ma = algos.reduce((s,v)=>s+v,0)/n;
+      const mo = orgsNext.reduce((s,v)=>s+v,0)/n;
+      const num = algos.reduce((s,v,i)=>s+(v-ma)*(orgsNext[i]-mo),0);
+      const da  = Math.sqrt(algos.reduce((s,v)=>s+(v-ma)**2,0));
+      const do_ = Math.sqrt(orgsNext.reduce((s,v)=>s+(v-mo)**2,0));
+      algoOrgCorr = (da>0 && do_>0) ? +(num/(da*do_)).toFixed(2) : null;
+    }
+
+    // ── 5. DM RAMP (days to peak algo since dmStart) ───────────────
+    let algoRamp = null;
+    if (dmStart != null) {
+      const dmSlice = history.slice(dmStart, dmEnd ?? history.length);
+      if (dmSlice.length > 0) {
+        const peakAlgo = Math.max(...dmSlice.map(d=>d.programmedStreams??0));
+        const peakDay  = dmSlice.findIndex(d=>(d.programmedStreams??0)===peakAlgo);
+        algoRamp = peakDay >= 0 ? peakDay + 1 : null;
+      }
+    }
+
+    // ── 6. ORGANIC INDEPENDENCE SCORE (0–100) ─────────────────────
+    // High = organic is growing / stable on its own; Low = dependent on algo
+    let orgScore = 50;
+    if (orgMom > 5)         orgScore += 25;
+    else if (orgMom > 0)    orgScore += 12;
+    else if (orgMom > -10)  orgScore -= 5;
+    else                    orgScore -= 20;
+    if (algoRatioNow < 20)  orgScore += 15;
+    else if (algoRatioNow < 40) orgScore += 5;
+    else if (algoRatioNow > 60) orgScore -= 15;
+    if (algoRatioTrend < -3) orgScore += 10; // algo decreasing = organic taking over
+    else if (algoRatioTrend > 3) orgScore -= 10;
+    if (algoOrgCorr !== null && algoOrgCorr > 0.4) orgScore += 10; // good conversion
+    orgScore = Math.min(100, Math.max(0, Math.round(orgScore)));
+
+    // ── 7. SIGNAL ─────────────────────────────────────────────────
     const lifecycle = detectLifecycle(track);
-
-    // ── Axis 2: Catalog DM outcome learning ──────────────────────
-    const dmAnalysis = analyzeCatalogDM(catalog);
-    const sp = dmAnalysis.successProfile;
-
-    // ── Axis 3: Convergent window score (0–100) ───────────────────
-    let windowPts = 0;
-    // Lifecycle fit (0–35)
-    const lfPts = { launch:10, peak:35, decay:35, longtail:20, dormant:5, unknown:0 };
-    windowPts += lfPts[lifecycle.stage] ?? 0;
-    // Momentum (0–20)
-    if      (m.mom4w >  5)  windowPts += 20;
-    else if (m.mom4w >  0)  windowPts += 12;
-    else if (m.mom4w > -10) windowPts += 6;
-    // Organic floor (0–20)
-    if      (m.organicFloor > 20) windowPts += 20;
-    else if (m.organicFloor > 12) windowPts += 14;
-    else if (m.organicFloor >  6) windowPts += 8;
-    else                          windowPts += 2;
-    // Similarity to successful DM profile (0–25)
-    if (sp && dmAnalysis.n >= 3) {
-      const kSim   = sp.avgK > 0 ? Math.max(0, 1 - Math.abs(m.structK - sp.avgK) / sp.avgK) : 0.5;
-      const flSim  = Math.max(0, 1 - Math.abs(m.organicFloor - sp.avgFloor) / 100);
-      const momSign= (m.mom4w >= 0) === (sp.avgMom >= 0) ? 1 : 0.3;
-      windowPts += Math.round((kSim * 0.4 + flSim * 0.4 + momSign * 0.2) * 25);
-    } else {
-      windowPts += 12; // neutral when no catalog data
-    }
-    const windowScore  = Math.min(100, Math.max(0, windowPts));
-    let windowStatus, windowColor, windowWeeks;
-    if (windowScore >= 70) {
-      windowStatus = "ABIERTA";    windowColor = "emerald";
-      windowWeeks  = m.structK > 0 ? Math.round(Math.min(16, 0.15 / m.structK)) : 12;
-    } else if (windowScore >= 40) {
-      windowStatus = "CERRÁNDOSE"; windowColor = "amber";
-      windowWeeks  = m.structK > 0 ? Math.round(Math.min(8, 0.08 / m.structK)) : 4;
-    } else {
-      windowStatus = "CERRADA";    windowColor = "rose";
-      windowWeeks  = 0;
-    }
-
-    // ── Health score (0–10, kept for backward compat) ────────────
-    const decayPts = m.structK <= 0.01 ? 3 : m.structK <= 0.02 ? 2 : m.structK <= 0.03 ? 1 : 0;
-    const momPts   = m.mom4w > 5 ? 2 : m.mom4w > 0 ? 1 : 0;
-    const floorPts = m.organicFloor > 20 ? 2 : m.organicFloor > 10 ? 1 : 0;
-    const dmPts    = track.status==="active" ? (dm.liftPct>20?3:dm.liftPct>10?2:dm.liftPct>0?1:0)
-                   : track.status==="candidate" ? 1 : 0;
-    const score      = Math.min(10, decayPts + momPts + floorPts + dmPts);
-    const scoreColor = score >= 7 ? "emerald" : score >= 4 ? "amber" : "rose";
-    const scoreLabel = score >= 7 ? "Saludable" : score >= 4 ? "En observación" : "En riesgo";
-
-    // ── Lifecycle-aware signal ────────────────────────────────────
     let signalColor = "slate", signalTitle = "", signalText = "";
     if (track.status === "active") {
-      if (dm.liftPct > 15) {
-        signalColor = "emerald"; signalTitle = "✅ DM generando lift sostenido";
-        signalText  = `Lift real de +${dm.liftPct}% sobre baseline — ${dm.liftPct > avgLift ? `${(dm.liftPct-avgLift).toFixed(1)}pp sobre el promedio del catálogo (${avgLift.toFixed(1)}%)` : "en línea con el catálogo"}. ${lifecycle.stage === "decay" ? "Track en decay activo: el DM está extendiendo su vida útil de forma efectiva." : ""}`;
-      } else if (dm.liftPct > 0) {
-        signalColor = "amber"; signalTitle = "⚠️ Lift DM moderado";
-        signalText  = `Lift de +${dm.liftPct}% — bajo el promedio de activos (${avgLift.toFixed(1)}%). ${lifecycle.stage === "dormant" ? "Track posiblemente demasiado avanzado en su ciclo para responder bien al DM." : "Evaluar si la inversión está bien asignada."}`;
+      if (dm.liftPct > 15 && orgMom > -5) {
+        signalColor = "emerald"; signalTitle = "✅ DM activo — orgánico resistente";
+        signalText  = `Lift DM: +${dm.liftPct}% · orgánico ${orgMom >= 0 ? `creciendo +${orgMom}%` : `cayendo ${orgMom}%`} (4 sem). ${algoOrgCorr !== null && algoOrgCorr > 0.4 ? "Alta conversión algorítmica: el boost genera oyentes que vuelven." : ""}`;
+      } else if (dm.liftPct > 0 && algoRatioNow > 60) {
+        signalColor = "amber"; signalTitle = "⚠️ Dependencia algorítmica alta";
+        signalText  = `${algoRatioNow.toFixed(1)}% del volumen es algorítmico. Lift de +${dm.liftPct}% pero riesgo de caída al salir de DM. Orgánico: ${orgMom > 0 ? `+${orgMom}%` : `${orgMom}%`} (4 sem).`;
+      } else if (dm.liftPct <= 0) {
+        signalColor = "rose"; signalTitle = "🔴 Sin lift — revisar campaña";
+        signalText  = `Streams no superan el baseline orgánico. Algo: ${algoRatioNow.toFixed(1)}% del total. El boost algorítmico no está generando incremento neto.`;
       } else {
-        signalColor = "rose"; signalTitle = "🔴 Sin lift detectado";
-        signalText  = "Los streams post-DM no superan el baseline orgánico. Considerar pausa o revisión de targeting.";
+        signalColor = "amber"; signalTitle = "⚠️ Lift moderado";
+        signalText  = `+${dm.liftPct}% lift · ${algoRatioNow.toFixed(1)}% algorítmico · orgánico ${orgMom >= 0 ? `+${orgMom}%` : `${orgMom}%`} (4 sem). Por debajo del promedio del catálogo (${avgLift.toFixed(1)}%).`;
       }
     } else if (track.status === "candidate") {
-      if (windowScore >= 70) {
-        signalColor = "purple"; signalTitle = "🟣 Ventana de activación óptima";
-        signalText  = `Score de ventana: ${windowScore}/100 · ${lifecycle.label}. ${m.mom4w > 0 ? `Momentum positivo (+${m.mom4w}% / 4 sem).` : ""} Activar en las próximas ${windowWeeks} semanas.`;
-      } else if (windowScore >= 40) {
-        signalColor = "amber"; signalTitle = "⚠️ Ventana cerrándose";
-        signalText  = `Score ${windowScore}/100 — ${lifecycle.desc}. La oportunidad se reduce; activar pronto o esperar nuevo ciclo.`;
-      } else {
-        signalColor = "rose"; signalTitle = "🔴 Ventana cerrada";
-        signalText  = `Score ${windowScore}/100 — ${lifecycle.label}. No es el momento óptimo para Discovery Mode.`;
-      }
+      signalColor = orgMom > 0 ? "purple" : orgMom > -10 ? "amber" : "rose";
+      signalTitle = orgMom > 0 ? "🟣 Orgánico creciendo — ventana activa" : orgMom > -10 ? "⚠️ Momentum neutro" : "🔴 Orgánico en caída";
+      signalText  = `Orgánico: ${orgMom >= 0 ? "+" : ""}${orgMom}% (4 sem) · k orgánico: ${orgK.toFixed(4)} · independencia: ${orgScore}/100. ${orgMom > 0 ? "Momento óptimo para activar DM." : "Esperar estabilización antes de invertir."}`;
     } else {
-      if (windowScore >= 65) {
-        signalColor = "purple"; signalTitle = "💡 Candidato potencial detectado";
-        signalText  = `Sin campaña activa pero perfil favorable para DM (score ${windowScore}/100). Considerar como candidato.`;
-      } else if (m.structK > 0.03) {
-        signalColor = "rose"; signalTitle = "🔴 Decaimiento acelerado";
-        signalText  = `k estructural ${fmt.dec4(m.structK)} · vida media ${m.halfLife < 999 ? m.halfLife+"w" : "N/A"}. Si hay potencial, la ventana es ahora.`;
-      } else {
-        signalColor = "slate"; signalTitle = "📊 Decaimiento orgánico estable";
-        signalText  = `k = ${fmt.dec4(m.structK)} · ${lifecycle.desc}. Sin intervención DM activa.`;
-      }
+      signalColor = orgMom > 5 ? "emerald" : orgMom > -10 ? "slate" : "rose";
+      signalTitle = orgMom > 5 ? "📈 Orgánico en crecimiento" : orgMom > -10 ? "📊 Decaimiento estable" : "🔴 Decaimiento acelerado";
+      signalText  = `Orgánico: ${orgMom >= 0 ? "+" : ""}${orgMom}% · k orgánico: ${orgK.toFixed(4)} · ratio algo actual: ${algoRatioNow.toFixed(1)}%. k estructural total: ${fmt.dec4(m.structK)}.`;
     }
 
-    // ── Action cards ──────────────────────────────────────────────
+    // ── 8. ACTIONS (algo-aware) ────────────────────────────────────
     const actions = [];
-    if (track.status === "active" && dm.liftPct > 15)
-      actions.push({ color:"emerald", icon:"✅", title:"Mantener campaña", desc:`Lift sostenido de +${dm.liftPct}%. Revenue neto: ${fmt.usd(dm.net)}.` });
-    else if (track.status === "active" && dm.liftPct <= 5)
-      actions.push({ color:"rose", icon:"⏸", title:"Evaluar pausa DM", desc:"Lift por debajo del umbral. Revisar targeting antes del próximo ciclo." });
-    else if (track.status === "candidate")
-      actions.push({ color:"purple", icon:"🚀", title:"Activar DM", desc:`Ventana ${windowStatus} (${windowScore}/100) — activar en los próximos ${windowWeeks > 0 ? windowWeeks+"sem" : "días"}.` });
-    else if (windowScore >= 65)
-      actions.push({ color:"purple", icon:"💡", title:"Considerar candidato", desc:`Score ${windowScore}/100 — perfil favorable. Evaluar activación DM.` });
+    // Primary action
+    if (track.status === "active") {
+      if (dm.liftPct > 15 && algoRatioNow < 55)
+        actions.push({ color:"emerald", icon:"✅", title:"Mantener campaña", desc:`Lift +${dm.liftPct}% con bajo riesgo de dependencia (${algoRatioNow.toFixed(0)}% algo). Revenue neto: ${fmt.usd(dm.net)}.` });
+      else if (algoRatioNow > 65)
+        actions.push({ color:"amber", icon:"⚠️", title:"Monitorear salida DM", desc:`${algoRatioNow.toFixed(0)}% algorítmico — preparar estrategia de transición. Orgánico: ${orgMom >= 0 ? "+" : ""}${orgMom}% (4 sem).` });
+      else if (dm.liftPct <= 5)
+        actions.push({ color:"rose", icon:"⏸", title:"Evaluar pausa DM", desc:`Lift por debajo del umbral. Orgánico ${orgMom >= 0 ? "+" : ""}${orgMom}% — ${orgMom > 0 ? "el track crece solo, DM no agrega valor" : "revisar targeting"}.` });
+      else
+        actions.push({ color:"amber", icon:"📊", title:"Revisar mix DM", desc:`Lift moderado +${dm.liftPct}%. Considerar ajustar peso editorial/algorítmico.` });
+    } else if (track.status === "candidate") {
+      actions.push({ color: orgMom > 0 ? "purple" : "amber", icon: orgMom > 0 ? "🚀" : "⏳", title: orgMom > 0 ? "Activar DM" : "Esperar momentum", desc: orgMom > 0 ? `Orgánico +${orgMom}% — ventana activa. Score independencia: ${orgScore}/100.` : `Orgánico ${orgMom}% — esperar estabilización antes de invertir en DM.` });
+    } else {
+      actions.push({ color: orgScore >= 60 ? "emerald" : "slate", icon: orgScore >= 60 ? "💡" : "👁", title: orgScore >= 60 ? "Candidato potencial" : "Monitorear", desc: orgScore >= 60 ? `Score orgánico ${orgScore}/100 — perfil favorable para DM.` : `Score orgánico ${orgScore}/100 — observar evolución antes de activar.` });
+    }
+    // Organic decay vs catalog
+    if (orgK > avgK * 1.4)
+      actions.push({ color:"rose", icon:"⚡", title:"Orgánico decayendo rápido", desc:`k orgánico ${orgK.toFixed(4)} — ${((orgK/avgK-1)*100).toFixed(0)}% sobre el promedio del catálogo. Ventana DM corta.` });
+    else if (orgK < avgK * 0.6)
+      actions.push({ color:"emerald", icon:"🏅", title:"Orgánico longevo", desc:`k orgánico ${orgK.toFixed(4)} — decae ${((1-orgK/avgK)*100).toFixed(0)}% más lento que el catálogo.` });
     else
-      actions.push({ color:"slate", icon:"👁", title:"Monitorear", desc:"Observar organic floor antes de cualquier inversión." });
-    if (m.structK > avgK * 1.3)
-      actions.push({ color:"rose", icon:"⚡", title:"Decay acelerado", desc:`k (${fmt.dec4(m.structK)}) ${((m.structK/avgK-1)*100).toFixed(0)}% sobre el promedio (${fmt.dec4(avgK)}). Vida corta.` });
-    else if (m.structK < avgK * 0.7)
-      actions.push({ color:"emerald", icon:"🏅", title:"Longevidad alta", desc:`Decae ${((1-m.structK/avgK)*100).toFixed(0)}% más lento que el promedio — catálogo de larga duración.` });
-    else
-      actions.push({ color:"amber", icon:"📉", title:"Decay normal", desc:`k ${fmt.dec4(m.structK)} vs avg ${fmt.dec4(avgK)} · vida media: ${m.halfLife < 999 ? m.halfLife+"w" : "N/A"}.` });
-    const commHigh = src.editorial > 30 || src.algorithmic > 30;
-    if (commHigh)
-      actions.push({ color:"amber", icon:"💸", title:"Comisión elevada", desc:`${src.editorial}% Editorial + ${src.algorithmic}% Algorítmico. Redistribuir hacia Playlist mejora el neto.` });
-    else
-      actions.push({ color:"emerald", icon:"💰", title:"Mix eficiente", desc:`${src.playlists ?? 0}% Playlist — baja comisión efectiva.` });
+      actions.push({ color:"amber", icon:"📉", title:"Decay orgánico normal", desc:`k org ${orgK.toFixed(4)} · k total ${fmt.dec4(m.structK)} · vida media: ${m.halfLife < 999 ? m.halfLife+"w" : "N/A"}.` });
+    // Algo conversion quality
+    if (algoOrgCorr !== null) {
+      if (algoOrgCorr > 0.45)
+        actions.push({ color:"emerald", icon:"🔁", title:"Conversión algo alta", desc:`Correlación algo→orgánico: ${algoOrgCorr}. El boost algorítmico genera oyentes que vuelven.` });
+      else if (algoOrgCorr < 0.15)
+        actions.push({ color:"rose", icon:"💨", title:"Streams de paso", desc:`Correlación algo→orgánico: ${algoOrgCorr}. El algoritmo no convierte — streams sin fidelización.` });
+    }
 
-    // ── Catalog comparison stats ──────────────────────────────────
-    const vsStreams = avgStreams > 0 ? +((m.avgStreams/avgStreams-1)*100).toFixed(0) : 0;
-    const vsK      = avgK > 0      ? +((1-m.structK/avgK)*100).toFixed(0) : 0;
-    const vsLift   = avgLift > 0 && dm.liftPct != null ? +(dm.liftPct - avgLift).toFixed(1) : null;
-
-    // ── DM outcome intel object for UI ───────────────────────────
-    const similarToSuccess = sp ? (() => {
-      const kSim  = sp.avgK > 0 ? Math.max(0, 1 - Math.abs(m.structK - sp.avgK) / sp.avgK) : 0.5;
-      const flSim = Math.max(0, 1 - Math.abs(m.organicFloor - sp.avgFloor) / 100);
-      return Math.round((kSim * 0.5 + flSim * 0.5) * 100);
-    })() : null;
-    const dmIntel = { n: dmAnalysis.n, successRate: dmAnalysis.successRate, avgLiftSuccess: dmAnalysis.avgLiftSuccess, successProfile: sp, similarToSuccess };
-
-    return { score, scoreColor, scoreLabel, signalColor, signalTitle, signalText, actions, vsStreams, vsK, vsLift, avgLift, lifecycle, windowScore, windowStatus, windowColor, windowWeeks, dmIntel };
-  }, [track, catalog, metrics]);
+    return { signalColor, signalTitle, signalText, actions, lifecycle, orgScore, orgMom, orgK, algoRatioNow, algoRatioTrend, algoOrgCorr, algoRamp, weeks, avgLift, avgK };
+  }, [track, catalog, metrics, history, dmStart, dmEnd]);
 
   const similarPattern = useMemo(() => {
     const similar = findSimilarTracks(track, catalog ?? [], 6);
@@ -2155,14 +2169,14 @@ const DecayTab = ({ track, catalog }) => {
           </div>
         )}
       </div>
+      {insight && (
       <div className="bg-slate-900 rounded-xl border border-slate-800 p-5 flex flex-col gap-4">
 
-        {/* ── Header: title + lifecycle pill + window score gauge ── */}
+        {/* ── Header ── */}
         <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2 flex-wrap min-w-0">
+          <div className="flex items-center gap-2">
             <Brain size={15} className="text-purple-400 shrink-0" />
             <h3 className="text-sm font-semibold text-slate-200">AI Intel</h3>
-            {/* Lifecycle pill */}
             <span className={`text-xs px-2 py-0.5 rounded-full font-semibold border whitespace-nowrap
               ${insight.lifecycle.color==="cyan"   ?"bg-cyan-500/15 text-cyan-300 border-cyan-500/30":
                 insight.lifecycle.color==="yellow" ?"bg-yellow-500/15 text-yellow-300 border-yellow-500/30":
@@ -2172,227 +2186,135 @@ const DecayTab = ({ track, catalog }) => {
               {insight.lifecycle.label}
             </span>
           </div>
-          {/* Window score radial gauge */}
+          {/* Organic Independence gauge */}
           <div className="flex items-center gap-2 shrink-0">
             <div className="text-right">
-              <p className={`text-xs font-black tracking-wider
-                ${insight.windowColor==="emerald"?"text-emerald-400":insight.windowColor==="amber"?"text-amber-400":"text-rose-400"}`}>
-                {insight.windowStatus}
+              <p className={`text-xs font-black tracking-wider ${insight.orgScore>=65?"text-emerald-400":insight.orgScore>=40?"text-amber-400":"text-rose-400"}`}>
+                {insight.orgScore >= 65 ? "INDEPENDIENTE" : insight.orgScore >= 40 ? "MIXTO" : "DEPENDIENTE"}
               </p>
-              <p className="text-xs text-slate-500 leading-tight">
-                {insight.windowWeeks > 0 ? `~${insight.windowWeeks}sem` : "ventana DM"}
-              </p>
+              <p className="text-xs text-slate-500 leading-tight">orgánico</p>
             </div>
             <div className="relative w-12 h-12 shrink-0">
               <svg viewBox="0 0 48 48" className="w-12 h-12 -rotate-90">
                 <circle cx="24" cy="24" r="20" fill="none" stroke="#1e293b" strokeWidth="5"/>
                 <circle cx="24" cy="24" r="20" fill="none"
-                  stroke={insight.windowColor==="emerald"?"#10b981":insight.windowColor==="amber"?"#f59e0b":"#f43f5e"}
+                  stroke={insight.orgScore>=65?"#10b981":insight.orgScore>=40?"#f59e0b":"#f43f5e"}
                   strokeWidth="5"
-                  strokeDasharray={`${(insight.windowScore/100)*125.7} 125.7`}
+                  strokeDasharray={`${(insight.orgScore/100)*125.7} 125.7`}
                   strokeLinecap="round"/>
               </svg>
-              <span className={`absolute inset-0 flex items-center justify-center text-xs font-black
-                ${insight.windowColor==="emerald"?"text-emerald-400":insight.windowColor==="amber"?"text-amber-400":"text-rose-400"}`}>
-                {insight.windowScore}
+              <span className={`absolute inset-0 flex items-center justify-center text-xs font-black ${insight.orgScore>=65?"text-emerald-400":insight.orgScore>=40?"text-amber-400":"text-rose-400"}`}>
+                {insight.orgScore}
               </span>
             </div>
           </div>
         </div>
 
-        {/* Lifecycle description subtitle */}
-        <p className="text-xs text-slate-500 -mt-2 leading-snug">{insight.lifecycle.desc}</p>
-
-        {/* ── Signal banner (lifecycle-aware) ── */}
+        {/* ── Signal banner ── */}
         <div className={`rounded-xl px-4 py-3 border-l-4 bg-slate-800/40
-          ${insight.signalColor==="emerald"?"border-emerald-500":
-            insight.signalColor==="amber"  ?"border-amber-500":
-            insight.signalColor==="rose"   ?"border-rose-500":
-            insight.signalColor==="purple" ?"border-purple-500":"border-slate-600"}`}>
-          <p className={`text-xs font-bold mb-1
-            ${insight.signalColor==="emerald"?"text-emerald-400":
-              insight.signalColor==="amber"  ?"text-amber-400":
-              insight.signalColor==="rose"   ?"text-rose-400":
-              insight.signalColor==="purple" ?"text-purple-400":"text-slate-400"}`}>
+          ${insight.signalColor==="emerald"?"border-emerald-500":insight.signalColor==="amber"?"border-amber-500":
+            insight.signalColor==="rose"?"border-rose-500":insight.signalColor==="purple"?"border-purple-500":"border-slate-600"}`}>
+          <p className={`text-xs font-bold mb-1 ${insight.signalColor==="emerald"?"text-emerald-400":insight.signalColor==="amber"?"text-amber-400":insight.signalColor==="rose"?"text-rose-400":insight.signalColor==="purple"?"text-purple-400":"text-slate-400"}`}>
             {insight.signalTitle}
           </p>
           <p className="text-xs text-slate-300 leading-relaxed">{insight.signalText}</p>
         </div>
 
-        {/* ── DM Outcome Intelligence panel ── */}
-        {insight.dmIntel.n > 0 && (
+        {/* ── Algo vs Orgánico — evolución semanal ── */}
+        {insight.weeks.length >= 2 && (
           <div className="bg-slate-800/30 rounded-xl p-3 border border-slate-700/50">
-            <p className="text-xs text-slate-500 font-semibold mb-2.5 uppercase tracking-wider flex items-center gap-1.5">
-              <Activity size={11} className="text-slate-500" />
-              DM Outcome Intelligence · {insight.dmIntel.n} tracks históricos
-            </p>
-            <div className="grid grid-cols-3 gap-2 mb-2">
-              <div className="text-center bg-slate-900/50 rounded-lg py-2 px-1">
-                <p className={`text-lg font-black ${
-                  insight.dmIntel.successRate != null && insight.dmIntel.successRate >= 0.6 ? "text-emerald-400" :
-                  insight.dmIntel.successRate >= 0.35 ? "text-amber-400" : "text-rose-400"}`}>
-                  {insight.dmIntel.successRate != null ? Math.round(insight.dmIntel.successRate * 100) : "—"}%
-                </p>
-                <p className="text-xs text-slate-500 mt-0.5">tasa de éxito</p>
-              </div>
-              <div className="text-center bg-slate-900/50 rounded-lg py-2 px-1">
-                <p className="text-lg font-black text-purple-400">
-                  {insight.dmIntel.avgLiftSuccess != null ? `+${insight.dmIntel.avgLiftSuccess.toFixed(0)}%` : "—"}
-                </p>
-                <p className="text-xs text-slate-500 mt-0.5">lift promedio</p>
-              </div>
-              <div className="text-center bg-slate-900/50 rounded-lg py-2 px-1">
-                <p className={`text-lg font-black ${
-                  insight.dmIntel.similarToSuccess == null ? "text-slate-500" :
-                  insight.dmIntel.similarToSuccess >= 70 ? "text-emerald-400" :
-                  insight.dmIntel.similarToSuccess >= 40 ? "text-amber-400" : "text-rose-400"}`}>
-                  {insight.dmIntel.similarToSuccess != null ? `${insight.dmIntel.similarToSuccess}%` : "—"}
-                </p>
-                <p className="text-xs text-slate-500 mt-0.5">similitud al exitoso</p>
+            <div className="flex items-center justify-between mb-2.5">
+              <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider flex items-center gap-1.5">
+                <Activity size={11} className="text-orange-400" />
+                Algo vs Orgánico · Evolución semanal
+              </p>
+              <div className="flex items-center gap-3 text-[10px]">
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm inline-block bg-orange-500/80"/><span className="text-slate-500">Algorítmico</span></span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm inline-block bg-emerald-600/80"/><span className="text-slate-500">Orgánico</span></span>
               </div>
             </div>
-            {insight.dmIntel.successProfile && (
-              <p className="text-xs text-slate-600 leading-snug">
-                Perfil exitoso: k≈{insight.dmIntel.successProfile.avgK?.toFixed(4)} · floor≈{insight.dmIntel.successProfile.avgFloor?.toFixed(0)}% · mom≈{insight.dmIntel.successProfile.avgMom?.toFixed(1)}%
-              </p>
-            )}
+            {/* Stacked bar chart — one bar per week */}
+            <div className="flex items-end gap-1 h-20">
+              {insight.weeks.map((w, i) => {
+                const maxVal = Math.max(...insight.weeks.map(x => x.total), 1);
+                const barH = Math.round((w.total / maxVal) * 72);
+                const algoH = Math.round(barH * (w.algoPct / 100));
+                const orgH  = barH - algoH;
+                const isLast = i === insight.weeks.length - 1;
+                return (
+                  <div key={i} className="flex-1 flex flex-col items-center justify-end gap-0">
+                    <div className="w-full flex flex-col justify-end rounded-sm overflow-hidden" style={{height:`${barH}px`}}>
+                      <div style={{height:`${algoH}px`,background:"#f97316cc"}} />
+                      <div style={{height:`${orgH}px`,background:"#10b98199"}} />
+                    </div>
+                    {isLast && <span className="text-[8px] text-slate-400 mt-0.5">Hoy</span>}
+                  </div>
+                );
+              })}
+            </div>
+            {/* Ratio trend summary */}
+            <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-700/50">
+              <div className="flex items-center gap-3">
+                <div>
+                  <p className="text-[10px] text-slate-500">Algo hoy</p>
+                  <p className="text-sm font-bold text-orange-400">{insight.algoRatioNow.toFixed(1)}%</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-slate-500">Tendencia</p>
+                  <p className={`text-sm font-bold ${insight.algoRatioTrend > 2 ? "text-rose-400" : insight.algoRatioTrend < -2 ? "text-emerald-400" : "text-slate-300"}`}>
+                    {insight.algoRatioTrend > 0 ? "+" : ""}{insight.algoRatioTrend}pp/sem
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-slate-500">Org momentum</p>
+                  <p className={`text-sm font-bold ${insight.orgMom > 0 ? "text-emerald-400" : insight.orgMom > -10 ? "text-amber-400" : "text-rose-400"}`}>
+                    {insight.orgMom > 0 ? "+" : ""}{insight.orgMom}%
+                  </p>
+                </div>
+              </div>
+              {insight.algoOrgCorr !== null && (
+                <div className="text-right">
+                  <p className="text-[10px] text-slate-500">Conversión algo</p>
+                  <p className={`text-sm font-bold ${insight.algoOrgCorr > 0.4 ? "text-emerald-400" : insight.algoOrgCorr > 0.15 ? "text-amber-400" : "text-rose-400"}`}>
+                    r={insight.algoOrgCorr}
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
         )}
 
-        {/* ── Fuente de Streams — Algo % analysis ── */}
-        {(() => {
-          if (!history?.length) return null;
-          const hasProg = history.some(d => d.programmedStreams > 0);
-          if (!hasProg) return null;
-
-          // Recent 28d overall algo %
-          const recent28 = history.slice(-Math.min(28, history.length));
-          const recTotal = recent28.reduce((s,d)=>s+d.streams,0);
-          const recProg  = recent28.reduce((s,d)=>s+(d.programmedStreams??0),0);
-          const recAlgoPct = recTotal > 0 ? Math.round((recProg/recTotal)*100) : null;
-
-          // During DM algo %
-          let dmAlgoPct = null;
-          if (dmStart != null) {
-            const dmSlice = history.slice(dmStart, dmEnd ?? history.length);
-            const dmTotal = dmSlice.reduce((s,d)=>s+d.streams,0);
-            const dmProg  = dmSlice.reduce((s,d)=>s+(d.programmedStreams??0),0);
-            dmAlgoPct = dmTotal > 0 ? Math.round((dmProg/dmTotal)*100) : null;
-          }
-
-          // Post-DM algo % (only if completed)
-          let postAlgoPct = null, postAlgoDelta = null;
-          if (dmEnd != null && history.length > dmEnd) {
-            const postSlice = history.slice(dmEnd);
-            const postTotal = postSlice.reduce((s,d)=>s+d.streams,0);
-            const postProg  = postSlice.reduce((s,d)=>s+(d.programmedStreams??0),0);
-            postAlgoPct = postTotal > 0 ? Math.round((postProg/postTotal)*100) : null;
-            if (postAlgoPct != null && dmAlgoPct != null)
-              postAlgoDelta = postAlgoPct - dmAlgoPct;
-          }
-
-          const algoSignal = dmEnd != null
-            ? postAlgoDelta != null
-              ? postAlgoDelta > 3  ? { color:"emerald", text:`+${postAlgoDelta}pp post-DM — el algoritmo siguió traccionando orgánicamente` }
-                : postAlgoDelta < -5 ? { color:"rose",    text:`${postAlgoDelta}pp post-DM — la salida de DM redujo la exposición algorítmica` }
-                :                      { color:"amber",   text:"Estable post-DM — el algoritmo no cambió significativamente al salir" }
-              : null
-            : dmStart != null && dmAlgoPct != null
-              ? dmAlgoPct > 70 ? { color:"orange", text:"Alta dependencia algorítmica durante DM — monitorear caída al salir" }
-              : dmAlgoPct > 50 ? { color:"amber",  text:"Mix equilibrado: orgánico + algorítmico durante la campaña" }
-              :                  { color:"emerald", text:"Bajo % algorítmico — streams principalmente orgánicos durante DM" }
-            : null;
-
-          return (
-            <div className="bg-slate-800/30 rounded-xl p-3 border border-slate-700/50">
-              <p className="text-xs text-slate-500 font-semibold mb-2.5 uppercase tracking-wider flex items-center gap-1.5">
-                <Activity size={11} className="text-orange-400" />
-                Fuente de Streams · Algorítmico vs Orgánico
-              </p>
-              <div className={`grid gap-2 mb-2 ${dmEnd!=null ? "grid-cols-3" : dmStart!=null ? "grid-cols-2" : "grid-cols-1"}`}>
-                {recAlgoPct != null && (
-                  <div className="text-center bg-slate-900/50 rounded-lg py-2 px-1">
-                    <p className="text-lg font-black text-orange-400">{recAlgoPct}%</p>
-                    <p className="text-xs text-slate-500 mt-0.5">algorítmico hoy</p>
-                  </div>
-                )}
-                {dmAlgoPct != null && dmStart != null && (
-                  <div className="text-center bg-slate-900/50 rounded-lg py-2 px-1">
-                    <p className="text-lg font-black text-purple-400">{dmAlgoPct}%</p>
-                    <p className="text-xs text-slate-500 mt-0.5">algo durante DM</p>
-                  </div>
-                )}
-                {postAlgoPct != null && (
-                  <div className="text-center bg-slate-900/50 rounded-lg py-2 px-1">
-                    <p className={`text-lg font-black ${postAlgoDelta!=null&&postAlgoDelta>3?"text-emerald-400":postAlgoDelta!=null&&postAlgoDelta<-3?"text-rose-400":"text-amber-400"}`}>
-                      {postAlgoPct}%
-                      {postAlgoDelta!=null&&<span className="text-xs font-normal ml-1">({postAlgoDelta>0?"+":""}{postAlgoDelta}pp)</span>}
-                    </p>
-                    <p className="text-xs text-slate-500 mt-0.5">algo post-DM</p>
-                  </div>
-                )}
-              </div>
-              {/* Visual bar */}
-              {recAlgoPct != null && (
-                <div className="mb-2">
-                  <div className="flex h-1.5 rounded-full overflow-hidden bg-slate-700">
-                    <div style={{width:`${recAlgoPct}%`,background:"#f97316"}} className="transition-all" />
-                    <div style={{width:`${100-recAlgoPct}%`,background:"#10b981"}} />
-                  </div>
-                  <div className="flex justify-between mt-1 text-[9px] text-slate-600">
-                    <span className="text-orange-500/80">Algorítmico {recAlgoPct}%</span>
-                    <span className="text-emerald-500/80">Orgánico {100-recAlgoPct}%</span>
-                  </div>
-                </div>
-              )}
-              {algoSignal && (
-                <p className={`text-xs leading-snug ${
-                  algoSignal.color==="emerald"?"text-emerald-400/80":
-                  algoSignal.color==="orange"?"text-orange-400/80":
-                  algoSignal.color==="rose"?"text-rose-400/80":"text-amber-400/80"}`}>
-                  {algoSignal.text}
+        {/* ── DM Ramp (si está en DM) ── */}
+        {track.status === "active" && insight.algoRamp !== null && (
+          <div className="bg-slate-800/30 rounded-xl p-3 border border-slate-700/50">
+            <p className="text-xs text-slate-500 font-semibold mb-2 uppercase tracking-wider flex items-center gap-1.5">
+              <Zap size={11} className="text-purple-400" />
+              Activación DM
+            </p>
+            <div className="flex items-center gap-4">
+              <div>
+                <p className="text-[10px] text-slate-500">Días hasta pico algo</p>
+                <p className={`text-lg font-black ${insight.algoRamp <= 7 ? "text-emerald-400" : insight.algoRamp <= 14 ? "text-amber-400" : "text-rose-400"}`}>
+                  {insight.algoRamp}d
                 </p>
-              )}
+              </div>
+              <p className="text-xs text-slate-400 leading-relaxed flex-1">
+                {insight.algoRamp <= 7 ? "Activación rápida — Spotify comenzó a boostearlo inmediatamente. Track con buena señal de engagement." :
+                 insight.algoRamp <= 14 ? "Activación normal — el algoritmo tardó ~2 semanas en alcanzar su pico de boost." :
+                 "Activación lenta — el algoritmo tardó en boostearlo. Puede indicar engagement inicial bajo."}
+              </p>
             </div>
-          );
-        })()}
+          </div>
+        )}
 
         {/* ── Action cards ── */}
         <div className="grid grid-cols-3 gap-3">
           {insight.actions.map((a,i) => (
-            <div key={i} className={`rounded-xl p-3 border
-              ${a.color==="emerald"?"bg-emerald-500/5 border-emerald-500/20":
-                a.color==="rose"   ?"bg-rose-500/5 border-rose-500/20":
-                a.color==="amber"  ?"bg-amber-500/5 border-amber-500/20":
-                a.color==="purple" ?"bg-purple-500/5 border-purple-500/20":"bg-slate-800/40 border-slate-700"}`}>
-              <p className={`text-xs font-bold mb-1.5
-                ${a.color==="emerald"?"text-emerald-400":
-                  a.color==="rose"   ?"text-rose-400":
-                  a.color==="amber"  ?"text-amber-400":
-                  a.color==="purple" ?"text-purple-400":"text-slate-400"}`}>
+            <div key={i} className={`rounded-xl p-3 border ${a.color==="emerald"?"bg-emerald-500/5 border-emerald-500/20":a.color==="rose"?"bg-rose-500/5 border-rose-500/20":a.color==="amber"?"bg-amber-500/5 border-amber-500/20":a.color==="purple"?"bg-purple-500/5 border-purple-500/20":"bg-slate-800/40 border-slate-700"}`}>
+              <p className={`text-xs font-bold mb-1.5 ${a.color==="emerald"?"text-emerald-400":a.color==="rose"?"text-rose-400":a.color==="amber"?"text-amber-400":a.color==="purple"?"text-purple-400":"text-slate-400"}`}>
                 {a.icon} {a.title}
               </p>
               <p className="text-xs text-slate-400 leading-relaxed">{a.desc}</p>
-            </div>
-          ))}
-        </div>
-
-        {/* ── Catalog comparison mini-stats ── */}
-        <div className="grid grid-cols-3 gap-3">
-          {[
-            { label:"Streams/día vs catálogo", val:insight.vsStreams, unit:"%" },
-            { label:"Longevidad vs catálogo",  val:insight.vsK,      unit:"%" },
-            { label:"Lift DM vs activos",      val:insight.vsLift,   unit:"pp", na: insight.vsLift == null },
-          ].map((c,i) => (
-            <div key={i} className="bg-slate-800/60 rounded-lg p-2.5">
-              <p className="text-xs text-slate-500 mb-1 leading-tight">{c.label}</p>
-              {c.na ? (
-                <p className="text-xs text-slate-600">Sin DM activo</p>
-              ) : (
-                <p className={`text-sm font-bold ${c.val >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-                  {c.val >= 0 ? "+" : ""}{c.val}{c.unit}
-                </p>
-              )}
             </div>
           ))}
         </div>
@@ -2411,6 +2333,7 @@ const DecayTab = ({ track, catalog }) => {
           </div>
         )}
       </div>
+      )}
 
       {/* ── Patrones del Catálogo ── */}
       <div className="bg-slate-900 rounded-xl border border-slate-800 p-5 flex flex-col gap-4">
@@ -3684,44 +3607,37 @@ export default function MusicDecayIntelligence() {
     [catalog, selectedArtist]
   );
   const track = useMemo(()=>artistCatalog.find(t=>t.id===selectedId),[artistCatalog, selectedId]);
-  const handleSelect=(id)=>{ setSelectedId(id); if(tab==="dashboard") setTab("decay"); };
-  const handleArtistChange = (a) => { setSelectedArtist(a); setSelectedId(null); setTab("dashboard"); };
+  const handleSelect=(id)=>{ setSelectedId(id); };
+  const handleArtistChange = (a) => { setSelectedArtist(a); setSelectedId(null); };
   const handleUpdateStatus = (id, status) => handleUpdateDM(id, { status });
-  const GLOBAL_TABS=[
-    {id:"dashboard",label:"Dashboard",icon:BarChart2},
-    {id:"manager",label:"Campañas DM",icon:Radio},
-    {id:"performance",label:"Performance",icon:TrendingUp},
+
+  // Overlay panels (Dashboard, Manager, Performance) sit on top of the main track view
+  const [overlay, setOverlay] = React.useState(null); // "dashboard" | "manager" | "performance" | null
+  const OVERLAY_PANELS=[
+    {id:"dashboard",  label:"Dashboard",   icon:BarChart2},
+    {id:"manager",    label:"Campañas DM", icon:Radio},
+    {id:"performance",label:"Performance", icon:TrendingUp},
   ];
   const TRACK_TABS=[
-    {id:"decay",label:"Decay",icon:Activity},
-    {id:"audit",label:"DM Audit",icon:Zap},
-    {id:"simulator",label:"ROI Simulator",icon:Target},
+    {id:"decay", label:"Decay",    icon:Activity},
+    {id:"audit", label:"DM Audit", icon:Zap},
   ];
-  const isTrackTab = TRACK_TABS.some(t=>t.id===tab);
+
   return (
     <div className="flex h-screen bg-slate-950 text-slate-100 overflow-hidden" style={{fontFamily:"system-ui,-apple-system,sans-serif"}}>
       <Sidebar tracks={artistCatalog} selectedId={selectedId} onSelect={handleSelect}
         search={search} onSearch={setSearch} filter={filter} onFilter={setFilter}
         artist={selectedArtist} onArtist={handleArtistChange} />
+
+      {/* ── Main track detail area ── */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        {/* Header */}
         <div className="flex items-center justify-between px-5 py-2.5 border-b border-slate-800 bg-slate-900/60 flex-shrink-0">
           <nav className="flex items-center gap-1">
-            {/* Global tabs */}
-            {GLOBAL_TABS.map(({id,label,icon:Icon})=>(
-              <button key={id} onClick={()=>setTab(id)}
-                className={`flex items-center gap-1.5 text-xs px-3.5 py-2 rounded-lg font-medium transition-all ${tab===id?"bg-slate-700 text-white":"text-slate-400 hover:text-slate-200 hover:bg-slate-800/60"}`}>
-                <Icon size={12} />{label}
-              </button>
-            ))}
-
-            {/* Separator */}
-            <span className="w-px h-5 bg-slate-700/80 mx-1.5" />
-
             {/* Dynamic Island */}
-            <DynamicIsland track={track} isTrackTab={isTrackTab} totalTracks={catalog.length} />
-
-            {/* Track-specific tabs */}
+            <DynamicIsland track={track} isTrackTab={true} totalTracks={catalog.length} />
             <span className="w-px h-5 bg-slate-700/80 mx-1.5" />
+            {/* Track tabs */}
             {TRACK_TABS.map(({id,label,icon:Icon})=>(
               <button key={id} onClick={()=>{ if(track) setTab(id); }}
                 title={!track?"Seleccioná un track primero":undefined}
@@ -3733,39 +3649,85 @@ export default function MusicDecayIntelligence() {
             ))}
           </nav>
 
-          <div className="relative">
-            <button onClick={()=>setShowTools(t=>!t)}
-              className={`flex items-center gap-1 text-xs px-2 py-1.5 rounded-lg border transition-colors
-                ${showTools?"bg-slate-700 border-slate-600 text-slate-200":"bg-slate-800 border-slate-700 text-slate-500 hover:text-slate-300 hover:bg-slate-700"}`}>
-              <ChevronDown size={13} className={`transition-transform duration-150 ${showTools?"rotate-180":""}`} />
-            </button>
-            {showTools && (
-              <div className="absolute right-0 top-full mt-1.5 flex flex-col bg-slate-800 border border-slate-700 rounded-xl shadow-xl z-50 overflow-hidden min-w-[148px]">
-                <button onClick={()=>{ setShowCmModal(true); setShowTools(false); }}
-                  className="flex items-center gap-2 text-xs px-4 py-2.5 hover:bg-slate-700 transition-colors text-slate-400 hover:text-slate-200 whitespace-nowrap">
-                  <Cpu size={11} />
-                  {Object.keys(cmLiveData).length > 0
-                    ? <span className="text-cyan-400">CM Live ✓</span>
-                    : "Chartmetric"}
-                </button>
-                <button className="flex items-center gap-2 text-xs px-4 py-2.5 hover:bg-slate-700 transition-colors text-slate-400 hover:text-slate-200 whitespace-nowrap border-t border-slate-700/50">
-                  <FileText size={11} /> Export PDF
-                </button>
-              </div>
-            )}
+          <div className="flex items-center gap-1">
+            {/* Report panel buttons */}
+            {OVERLAY_PANELS.map(({id,label,icon:Icon})=>(
+              <button key={id} onClick={()=>setOverlay(id)}
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-medium transition-all text-slate-400 hover:text-slate-200 hover:bg-slate-800/60">
+                <Icon size={12} />{label}
+              </button>
+            ))}
+            <span className="w-px h-5 bg-slate-700/80 mx-1" />
+            {/* Tools dropdown */}
+            <div className="relative">
+              <button onClick={()=>setShowTools(t=>!t)}
+                className={`flex items-center gap-1 text-xs px-2 py-1.5 rounded-lg border transition-colors
+                  ${showTools?"bg-slate-700 border-slate-600 text-slate-200":"bg-slate-800 border-slate-700 text-slate-500 hover:text-slate-300 hover:bg-slate-700"}`}>
+                <ChevronDown size={13} className={`transition-transform duration-150 ${showTools?"rotate-180":""}`} />
+              </button>
+              {showTools && (
+                <div className="absolute right-0 top-full mt-1.5 flex flex-col bg-slate-800 border border-slate-700 rounded-xl shadow-xl z-50 overflow-hidden min-w-[148px]">
+                  <button onClick={()=>{ setShowCmModal(true); setShowTools(false); }}
+                    className="flex items-center gap-2 text-xs px-4 py-2.5 hover:bg-slate-700 transition-colors text-slate-400 hover:text-slate-200 whitespace-nowrap">
+                    <Cpu size={11} />
+                    {Object.keys(cmLiveData).length > 0 ? <span className="text-cyan-400">CM Live ✓</span> : "Chartmetric"}
+                  </button>
+                  <button className="flex items-center gap-2 text-xs px-4 py-2.5 hover:bg-slate-700 transition-colors text-slate-400 hover:text-slate-200 whitespace-nowrap border-t border-slate-700/50">
+                    <FileText size={11} /> Export PDF
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
+
+        {/* Track content */}
         <div className="flex-1 overflow-y-auto">
           <ErrorBoundary key={tab + selectedId}>
-            {tab==="dashboard"&&<DashboardTab tracks={artistCatalog} onSelectTrack={handleSelect} />}
-            {tab==="manager"&&<DMManagerTab catalog={artistCatalog} onUpdateStatus={handleUpdateStatus} dmOverrides={dmOverrides} onUpdateDM={handleUpdateDM} onRemoveDM={handleRemoveDM} />}
-            {tab==="decay"&&track&&<DecayTab track={track} catalog={artistCatalog} />}
-            {tab==="audit"&&track&&<DMAuditTab track={track} />}
-            {tab==="simulator"&&track&&<ROISimulatorTab track={track} />}
-            {tab==="performance"&&<PerformanceTab tracks={artistCatalog} />}
+            {!track ? (
+              <div className="flex items-center justify-center h-full">
+                <div className="text-center">
+                  <Activity size={32} className="text-slate-700 mx-auto mb-3" />
+                  <p className="text-slate-500 font-medium">Seleccioná un track para comenzar</p>
+                  <p className="text-xs text-slate-700 mt-1">Usá el panel izquierdo para navegar el catálogo</p>
+                </div>
+              </div>
+            ) : tab==="decay" ? <DecayTab track={track} catalog={artistCatalog} />
+              : tab==="audit" ? <DMAuditTab track={track} />
+              : <DecayTab track={track} catalog={artistCatalog} />}
           </ErrorBoundary>
         </div>
       </div>
+
+      {/* ── Overlay panels (Dashboard / Manager / Performance) ── */}
+      {overlay && (
+        <div className="absolute inset-0 z-40 flex" style={{background:"rgba(2,6,23,0.7)"}}>
+          <div className="flex-1 flex flex-col bg-slate-950 ml-[220px] overflow-hidden">
+            {/* Overlay header */}
+            <div className="flex items-center justify-between px-5 py-2.5 border-b border-slate-800 bg-slate-900/80 flex-shrink-0">
+              <div className="flex items-center gap-2">
+                {OVERLAY_PANELS.map(({id,label,icon:Icon})=>(
+                  <button key={id} onClick={()=>setOverlay(id)}
+                    className={`flex items-center gap-1.5 text-xs px-3.5 py-2 rounded-lg font-medium transition-all ${overlay===id?"bg-slate-700 text-white":"text-slate-400 hover:text-slate-200 hover:bg-slate-800/60"}`}>
+                    <Icon size={12}/>{label}
+                  </button>
+                ))}
+              </div>
+              <button onClick={()=>setOverlay(null)}
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors border border-slate-700">
+                <X size={12} /> Cerrar
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              <ErrorBoundary key={overlay}>
+                {overlay==="dashboard"  && <DashboardTab tracks={artistCatalog} onSelectTrack={(id)=>{ handleSelect(id); setOverlay(null); setTab("decay"); }} />}
+                {overlay==="manager"    && <DMManagerTab catalog={artistCatalog} onUpdateStatus={handleUpdateStatus} dmOverrides={dmOverrides} onUpdateDM={handleUpdateDM} onRemoveDM={handleRemoveDM} />}
+                {overlay==="performance"&& <PerformanceTab tracks={artistCatalog} />}
+              </ErrorBoundary>
+            </div>
+          </div>
+        </div>
+      )}
       {showCmModal&&(
         <ChartmetricModal
           onClose={()=>setShowCmModal(false)}
