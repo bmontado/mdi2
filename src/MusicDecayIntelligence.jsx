@@ -579,29 +579,53 @@ const computeBaseline = (history, dmStart) => {
     return history.map(d => ({ ...d, baseline:d.streams, baselineOrg:d.streams, ci_lo:d.streams, ci_hi:d.streams }));
 
   const TRAIN_EXT = 90;
+  const ANCHOR_WIN = 15;
   const tStart = Math.max(0, dmStart - TRAIN_EXT);
   const trainRaw = history.slice(tStart, dmStart);
   if (trainRaw.length < 7)
     return history.map(d => ({ ...d, baseline:d.streams, baselineOrg:d.streams, ci_lo:d.streams, ci_hi:d.streams }));
 
-  // ── Modelo A: streams TOTALES → contrafactual DM (mide lift real) ──
-  // Uses smooth EWLS prediction (no anchor-pin) to avoid contamination from DM pre-ramp days
-  const mTotal  = _fitEWLS(trainRaw, trainRaw.map(d => d.streams));
-
-  // ── Modelo B: streams ORGÁNICOS (total − programado) → piso post-DM ──
+  // ── Fit EWLS to extract slope + DOW patterns (ignore centroid level) ──
+  const mTotal = _fitEWLS(trainRaw, trainRaw.map(d => d.streams));
   const orgVals = trainRaw.map(d => Math.max(1, d.streams - (d.programmedStreams ?? 0)));
-  const mOrg    = _fitEWLS(trainRaw, orgVals);
+  const mOrg   = _fitEWLS(trainRaw, orgVals);
 
-  return history.map((d,i) => {
-    // A: Contrafactual total (para DM revenue/lift) — smooth prediction from EWLS centroid
-    const blL  = mTotal.wMl + mTotal.slopeL*(d.day - mTotal.wMx) + mTotal.dow7L[d.dow];
-    const bl   = Math.max(Math.round(Math.exp(blL) - 1), Math.round(Math.exp(mTotal.wMl) * 0.05));
-    const horizon = Math.max(0, i - dmStart);
-    const ci   = CFG.CI * mTotal.stdR * Math.sqrt(1 + horizon/trainRaw.length);
+  // ── Anchor A: exp-weighted avg of last ANCHOR_WIN total streams before DM ──
+  //    Half-life 5d → recent days dominate, smooths last-day noise
+  const anchorWin = history.slice(Math.max(0, dmStart - ANCHOR_WIN), dmStart);
+  const anchorLam = Math.log(2) / 5;
+  const anchorW   = anchorWin.map((_, i) => Math.exp(-anchorLam * (anchorWin.length - 1 - i)));
+  const anchorWSum = anchorW.reduce((a,b) => a+b, 0);
+  const anchorTotal = Math.max(1, Math.round(
+    anchorWin.reduce((s,d,i) => s + d.streams * anchorW[i], 0) / anchorWSum
+  ));
+  const anchorTotalL = Math.log(anchorTotal + 1);
 
-    // B: Piso orgánico (para forecast post-DM) — smooth organic prediction
-    const blOrgL = mOrg.wMl + mOrg.slopeL*(d.day - mOrg.wMx) + mOrg.dow7L[d.dow];
-    const blOrg  = Math.max(Math.round(Math.exp(blOrgL) - 1), Math.round(Math.exp(mOrg.wMl) * 0.05));
+  // ── Anchor B: same for organic streams ──
+  const anchorOrg = Math.max(1, Math.round(
+    anchorWin.reduce((s,d,i) => s + Math.max(1, d.streams-(d.programmedStreams??0)) * anchorW[i], 0) / anchorWSum
+  ));
+  const anchorOrgL = Math.log(anchorOrg + 1);
+
+  // ── Anchor day (last pre-DM day) ──
+  const anchorDayVal = history[dmStart - 1]?.day ?? (history[dmStart]?.day ?? 0) - 1;
+
+  return history.map((d, i) => {
+    // Before DM: baseline = actual (no DM effect → lift = 0 in pre-DM by design)
+    if (i < dmStart) {
+      return { ...d, baseline: d.streams, baselineOrg: Math.max(1, d.streams-(d.programmedStreams??0)),
+               ci_lo: d.streams, ci_hi: d.streams };
+    }
+    // During / after DM: project from anchor using slope + DOW
+    const dfa = d.day - anchorDayVal;
+    // A: Total contrafactual
+    const blL  = anchorTotalL + mTotal.slopeL * dfa + mTotal.dow7L[d.dow];
+    const bl   = Math.max(Math.round(Math.exp(blL) - 1), Math.round(anchorTotal * 0.05));
+    const horizon = i - dmStart;
+    const ci   = CFG.CI * mTotal.stdR * Math.sqrt(1 + horizon / trainRaw.length);
+    // B: Organic floor
+    const blOrgL = anchorOrgL + mOrg.slopeL * dfa + mOrg.dow7L[d.dow];
+    const blOrg  = Math.max(Math.round(Math.exp(blOrgL) - 1), Math.round(anchorOrg * 0.05));
 
     return {
       ...d,
@@ -927,7 +951,10 @@ const analyzeCatalogDM = (catalog) => {
 //  FORMATTERS
 // ════════════════════════════════════════════════════════════════
 const fmt = {
-  k:(n)=>n>=1e6?`${(n/1e6).toFixed(1)}M`:n>=1e3?`${(n/1e3).toFixed(0)}K`:`${n??0}`,
+  // Short (1.2K, 3.4M) — for chart axes and compact KPIs
+  k:(n)=>n>=1e6?`${(n/1e6).toFixed(1)}M`:n>=1e3?`${(n/1e3).toFixed(1)}K`:`${Math.round(n??0)}`,
+  // Exact with thousands separator — for DM Audit numbers where precision matters
+  exact:(n)=>Math.round(n??0).toLocaleString("es-AR"),
   pct:(n)=>`${n>0?"+":""}${(n??0).toFixed(1)}%`,
   usd:(n)=>`$${Math.abs(n??0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}`,
   dec4:(n)=>(n??0).toFixed(4),
@@ -3017,34 +3044,34 @@ const DMAuditTab = ({ track }) => {
           <p className="text-xs text-slate-500 mt-2">{dm.noBaseline ? "Sin datos pre-DM — baseline no calculable" : "Streams Reales vs Baseline EWLS Orgánico"}</p>
           <div className="flex gap-4 mt-4 flex-wrap">
             {[
-              ["Observado",fmt.k(dm.observed),"text-white"],
-              ["Baseline",dm.noBaseline?"—":fmt.k(dm.baseline),"text-purple-300"],
-              ["Incremental",dm.noBaseline?"—":`+${fmt.k(dm.incremental)}`,"text-emerald-400"],
+              ["Observado",fmt.exact(dm.observed),"text-white"],
+              ["Baseline",dm.noBaseline?"—":fmt.exact(dm.baseline),"text-purple-300"],
+              ["Incremental",dm.noBaseline?"—":`+${fmt.exact(dm.incremental)}`,"text-emerald-400"],
             ].map(([l,v,c])=>(
               <div key={l}><p className="text-xs text-slate-500">{l}</p><p className={`text-sm font-bold ${c}`}>{v}</p></div>
             ))}
           </div>
           <div className="flex gap-4 mt-3 flex-wrap border-t border-slate-700/50 pt-3">
             {[
-              ["Algo Total",fmt.k(dm.campProgObs),"text-orange-300"],
-              ["Org Total",fmt.k(dm.campOrgObs),"text-cyan-300"],
-              ["% Algo",`${Math.round((dm.algoRatio??0)*100)}%`,"text-orange-400"],
+              ["Algo Total",fmt.exact(dm.campProgObs),"text-orange-300"],
+              ["Org Total",fmt.exact(dm.campOrgObs),"text-cyan-300"],
+              ["% Algo",`${((dm.algoRatio??0)*100).toFixed(1)}%`,"text-orange-400"],
             ].map(([l,v,c])=>(
               <div key={l}><p className="text-xs text-slate-500">{l}</p><p className={`text-sm font-bold ${c}`}>{v}</p></div>
             ))}
             <div>
               <p className="text-xs text-slate-500">Algo/día Pre-DM</p>
-              <p className="text-sm font-bold text-slate-300">{fmt.k(dm.preDmAlgoAvg??0)}</p>
+              <p className="text-sm font-bold text-slate-300">{fmt.exact(dm.preDmAlgoAvg??0)}</p>
             </div>
             <div>
               <p className="text-xs text-slate-500">Algo/día En DM</p>
-              <p className="text-sm font-bold text-orange-300">{fmt.k(dm.campAlgoAvg??0)}</p>
+              <p className="text-sm font-bold text-orange-300">{fmt.exact(dm.campAlgoAvg??0)}</p>
             </div>
             <div>
               <p className="text-xs text-slate-500">Cambio Algo</p>
               <p className={`text-sm font-bold ${(dm.algoDelta??0)>0?"text-emerald-400":(dm.algoDelta??0)<0?"text-rose-400":"text-slate-400"}`}>
                 {dm.algoDelta!=null?`${dm.algoDelta>0?"+":""}${dm.algoDelta}%`:"—"}
-                <span className="text-xs ml-1 opacity-70">({dm.algoDeltaAbs!=null?(dm.algoDeltaAbs>0?"+":"")+fmt.k(dm.algoDeltaAbs):"—"}/d)</span>
+                <span className="text-xs ml-1 opacity-70">({dm.algoDeltaAbs!=null?(dm.algoDeltaAbs>0?"+":"")+fmt.exact(dm.algoDeltaAbs):"—"}/d)</span>
               </p>
             </div>
           </div>
