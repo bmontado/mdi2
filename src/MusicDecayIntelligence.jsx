@@ -348,6 +348,20 @@ const _DM_CONFIG = {
   "s4a-025": { status:"completed", dmStart:283, dmEnd:342 },  // En Llamas
 };
 
+// ── Snaps a day-index to the 1st of its month (DM siempre entra el 1ero) ───
+const _snapTo1st = (idx, dates) => {
+  if (idx == null || !dates?.length || idx >= dates.length) return idx;
+  const date = new Date(dates[idx] + "T12:00:00");
+  if (date.getDate() === 1) return idx; // ya es el 1ero
+  const firstStr = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-01`;
+  const found = dates.indexOf(firstStr);
+  if (found !== -1) return found;
+  const nextMonth = new Date(date.getFullYear(), date.getMonth()+1, 1);
+  const nextStr = nextMonth.toISOString().slice(0,10);
+  const foundNext = dates.indexOf(nextStr);
+  return foundNext !== -1 ? foundNext : idx;
+};
+
 const TRACKS_CFG = [
   // ── NTVG 2 catalog ──
   ...Object.entries(RAW_STREAM_DATA).map(([id, t]) => {
@@ -399,22 +413,6 @@ const TRACKS_CFG = [
     };
   }),
 ];
-
-// ── Snaps a day-index to the 1st of its month (DM siempre entra el 1ero) ───
-const _snapTo1st = (idx, dates) => {
-  if (idx == null || !dates?.length || idx >= dates.length) return idx;
-  const date = new Date(dates[idx] + "T12:00:00");
-  if (date.getDate() === 1) return idx; // ya es el 1ero
-  // Buscar el 1ero de ese mes
-  const firstStr = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-01`;
-  const found = dates.indexOf(firstStr);
-  if (found !== -1) return found;
-  // Si no hay datos del 1ero de ese mes, intentar el 1ero del mes siguiente
-  const nextMonth = new Date(date.getFullYear(), date.getMonth()+1, 1);
-  const nextStr = nextMonth.toISOString().slice(0,10);
-  const foundNext = dates.indexOf(nextStr);
-  return foundNext !== -1 ? foundNext : idx;
-};
 
 // ── Helpers de limpieza ───────────────────────────────────────────
 
