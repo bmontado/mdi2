@@ -293,7 +293,8 @@ const RAW_STREAM_DATA_FLORECE = {
 //  Si El Mar Me Ve: DM desde 1/Abr/2026 (active)
 // ════════════════════════════════════════════════════════════════
 const _FLORECE_DM = {
-  "En Llamas":       { status:"active",  dmStartDate:"2026-04-01" },
+  // En Llamas: DM desde 1-Ene-2026, sale 1-Mar-2026, reingresa 1-Abr-2026
+  "En Llamas":       { status:"active",  dmStartDate:"2026-01-01", dmPause:"2026-03-01", dmResume:"2026-04-01" },
   "En Mil Pedazos":  { status:"active",  dmStartDate:"2026-03-01" },
   "Si El Mar Me Ve": { status:"active",  dmStartDate:"2026-04-01" },
 };
@@ -375,10 +376,22 @@ const TRACKS_CFG = [
       if (dmEnd === -1) dmEnd = t.dates.findIndex(d => d >= dmCfg.dmEndDate);
       if (dmEnd === -1) dmEnd = null;
     }
+    // Resolve optional pause/resume indices for multi-period DM
+    let dmPauseIdx = null, dmResumeIdx = null;
+    if (dmCfg.dmPause && t.dates?.length) {
+      dmPauseIdx = t.dates.indexOf(dmCfg.dmPause);
+      if (dmPauseIdx === -1) dmPauseIdx = t.dates.findIndex(d => d >= dmCfg.dmPause);
+      if (dmPauseIdx === -1) dmPauseIdx = null;
+    }
+    if (dmCfg.dmResume && t.dates?.length) {
+      dmResumeIdx = t.dates.indexOf(dmCfg.dmResume);
+      if (dmResumeIdx === -1) dmResumeIdx = t.dates.findIndex(d => d >= dmCfg.dmResume);
+      if (dmResumeIdx === -1) dmResumeIdx = null;
+    }
     return {
       id, name: t.name, artist: "Florece",
       genre: "Rock Alternativo", royalty: 0.0011,
-      status, dmStart, dmEnd,
+      status, dmStart, dmEnd, dmPauseIdx, dmResumeIdx,
       sources: { editorial: 20, algorithmic: 42, playlists: 25, profile: 13 },
     };
   }),
@@ -723,13 +736,25 @@ const buildCatalog = (liveData = {}) => TRACKS_CFG.map(cfg => {
   if (cfg.dmStart != null) {
     const trainLen = Math.min(cfg.dmStart, CFG.TRAIN_DAYS);
     const hasBaseline = trainLen >= 7;
-    const camp = history.slice(cfg.dmStart, cfg.dmEnd ?? history.length);
+    const campFull = history.slice(cfg.dmStart, cfg.dmEnd ?? history.length);
+    // Exclude paused period if present (dmPauseIdx..dmResumeIdx)
+    const camp = (cfg.dmPauseIdx != null && cfg.dmResumeIdx != null)
+      ? campFull.filter((_,i) => {
+          const absIdx = cfg.dmStart + i;
+          return absIdx < cfg.dmPauseIdx || absIdx >= cfg.dmResumeIdx;
+        })
+      : campFull;
     const obs = camp.reduce((s,d)=>s+d.streams,0);
     const bl  = camp.reduce((s,d)=>s+(d.baseline??d.streams),0);
     const inc = obs - bl;
     // Desglose algorítmico/orgánico durante la campaña
     const campProgObs = camp.reduce((s,d)=>s+(d.programmedStreams??0),0);
     const campOrgObs  = obs - campProgObs;
+    // Paused period stats (for display)
+    const pausedSlice = (cfg.dmPauseIdx != null && cfg.dmResumeIdx != null)
+      ? history.slice(cfg.dmPauseIdx, cfg.dmResumeIdx) : [];
+    const pausedDays = pausedSlice.length;
+    const pausedStreams = pausedSlice.reduce((s,d) => s + d.streams, 0);
     const algoRatio   = obs > 0 ? campProgObs / obs : 0;
     const algoInc     = hasBaseline ? Math.round(inc * algoRatio) : null;
     const orgInc      = hasBaseline ? Math.round(inc * (1 - algoRatio)) : null;
@@ -766,6 +791,7 @@ const buildCatalog = (liveData = {}) => TRACKS_CFG.map(cfg => {
       algoDelta, algoDeltaAbs, preDmAlgoAvg: Math.round(preDmAlgoAvg), campAlgoAvg: Math.round(campAlgoAvg),
       noBaseline: !hasBaseline,
       dmAvg, postDmAvg, postDmDelta,
+      pausedDays, pausedStreams,
     };
   }
   // Auto-detect candidatos: tracks con decay real y volumen suficiente
@@ -932,52 +958,45 @@ const ChartTooltip = ({ active, payload, label }) => {
 const DecayTooltip = ({ active, payload, label }) => {
   if (!active || !payload?.length) return null;
   const find = key => payload.find(p => p.dataKey === key);
-  const real   = find("Streams Reales");
-  const base   = find("Baseline Orgánico");
-  const pron   = find("Pronóstico");
-  const ciHi   = find("CI Superior");
-  const ciLo   = find("CI Inferior");
-  const popVal = find("Popularity")?.value ?? null;
-  const realVal = real?.value ?? null;
-  const baseVal = base?.value ?? pron?.value ?? null;
-  const isForecast = realVal == null && pron?.value != null;
-  const lift = realVal != null && baseVal != null ? ((realVal - baseVal) / baseVal * 100) : null;
+  const realVal = find("Streams Reales")?.value ?? null;
+  const algoVal = find("Streams Algorítmicos")?.value ?? null;
+  const popVal  = find("Popularity")?.value ?? null;
+  const orgVal  = (realVal != null && algoVal != null) ? realVal - algoVal : null;
+  const algoPct = (realVal != null && algoVal != null && realVal > 0) ? ((algoVal / realVal) * 100) : null;
   return (
-    <div className="bg-slate-900 border border-slate-700 rounded-xl p-3 text-xs shadow-2xl" style={{minWidth:"176px"}}>
-      <div className="flex items-center justify-between mb-2.5">
-        <p className="text-slate-300 font-semibold">{label}</p>
-        {isForecast && <span className="text-purple-400 bg-purple-500/15 border border-purple-500/20 px-1.5 py-0.5 rounded text-xs">Pronóstico</span>}
-      </div>
+    <div className="bg-slate-900 border border-slate-700 rounded-xl p-3 text-xs shadow-2xl" style={{minWidth:"200px"}}>
+      <p className="text-slate-300 font-semibold mb-2.5">{label}</p>
       {realVal != null && (
         <div className="flex items-center justify-between gap-5 mb-1.5">
-          <span className="text-emerald-400 font-medium">● Streams</span>
+          <span className="text-emerald-400 font-medium">● Streams Totales</span>
           <span className="text-white font-bold tabular-nums">{realVal.toLocaleString("es-AR")}</span>
         </div>
       )}
-      {baseVal != null && (
-        <div className="flex items-center justify-between gap-5 mb-1.5">
-          <span className="text-purple-400 font-medium">{isForecast ? "◆ Pronóstico" : "– Baseline"}</span>
-          <span className="text-white font-bold tabular-nums">{baseVal.toLocaleString("es-AR")}</span>
-        </div>
+      {realVal != null && algoVal != null && (
+        <>
+          <div className="flex items-center justify-between gap-5 mb-1">
+            <span className="text-orange-400 font-medium">▪ Algorítmico</span>
+            <span className="text-orange-300 font-bold tabular-nums">{algoVal.toLocaleString("es-AR")}</span>
+          </div>
+          <div className="flex items-center justify-between gap-5 mb-1">
+            <span className="text-cyan-400 font-medium">▪ Orgánico</span>
+            <span className="text-cyan-300 font-bold tabular-nums">{orgVal.toLocaleString("es-AR")}</span>
+          </div>
+          <div className="flex items-center justify-between gap-5 pt-1.5 border-t border-slate-800">
+            <span className="text-slate-400">% Algorítmico</span>
+            <span className="text-orange-400 font-bold">{algoPct.toFixed(1)}%</span>
+          </div>
+        </>
       )}
-      {lift != null && (
-        <div className="flex items-center justify-between gap-5 mb-1.5 pt-1.5 border-t border-slate-800">
-          <span className="text-slate-400">Lift DM</span>
-          <span className={`font-bold ${lift >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-            {lift >= 0 ? "+" : ""}{lift.toFixed(1)}%
-          </span>
+      {realVal != null && algoVal == null && (
+        <div className="flex items-center justify-between gap-5 mb-1 pt-1 border-t border-slate-800">
+          <span className="text-slate-500 italic">Activá "Algorítmico" para ver desglose</span>
         </div>
       )}
       {popVal != null && (
-        <div className="flex items-center justify-between gap-5 mb-1.5 pt-1.5 border-t border-slate-800">
+        <div className="flex items-center justify-between gap-5 pt-1.5 border-t border-slate-800">
           <span className="text-amber-400 font-medium">★ Popularity</span>
           <span className="text-amber-300 font-bold tabular-nums">{popVal}/100</span>
-        </div>
-      )}
-      {ciHi?.value != null && ciLo?.value != null && (
-        <div className="flex items-center justify-between gap-5 pt-1.5 border-t border-slate-800">
-          <span className="text-slate-500">IC 95%</span>
-          <span className="text-slate-400 tabular-nums">{ciLo.value.toLocaleString("es-AR")} – {ciHi.value.toLocaleString("es-AR")}</span>
         </div>
       )}
     </div>
@@ -1760,7 +1779,7 @@ const DecayTab = ({ track, catalog }) => {
   const [viewMode, setViewMode] = useState("daily");
   const [showContext, setShowContext] = useState(false);
   const [showAlgo, setShowAlgo] = useState(false);
-  const { metrics, history, dmStart, dmEnd } = track;
+  const { metrics, history, dmStart, dmEnd, dmPauseIdx, dmResumeIdx } = track;
 
   // All hooks must be called unconditionally (Rules of Hooks)
   const withForecast = useMemo(()=> history?.length ? appendForecast(history, dmStart) : [], [history,dmStart]);
@@ -1779,7 +1798,7 @@ const DecayTab = ({ track, catalog }) => {
     const base = trimmed.map((d,i)=>({
       label:d.label,
       "Streams Reales":       d.isForecast ? null : d.streams,
-      "Streams Algorítmicos": (!d.isForecast && showAlgo) ? (d.programmedStreams ?? 0) : null,
+      "Streams Algorítmicos": !d.isForecast ? (d.programmedStreams ?? 0) : null,
       "Popularity": (!d.isForecast && d.date && popLookup[d.date] !== undefined) ? popLookup[d.date] : null,
     }));
     if (viewMode==="weekly") {
@@ -2016,6 +2035,9 @@ const DecayTab = ({ track, catalog }) => {
   ];
   const dmLabel    = dmStart != null ? allChartData[dmStart]?.label : null;
   const dmEndLabel = dmEnd   != null ? allChartData[dmEnd]?.label   : null;
+  // Pause/Resume labels for multi-period DM (e.g. En Llamas)
+  const dmPauseLabel  = dmPauseIdx  != null ? history[dmPauseIdx]?.label  ?? null : null;
+  const dmResumeLabel = dmResumeIdx != null ? history[dmResumeIdx]?.label ?? null : null;
   const forecastStartLabel = lastActualLabel;
   const forecastEndLabel = allChartData.at(-1)?.label;
   return (
@@ -2035,7 +2057,12 @@ const DecayTab = ({ track, catalog }) => {
             {dmStart!=null&&(
               <div className="flex items-center gap-1.5 bg-purple-500/10 border border-purple-500/20 rounded-lg px-3 py-1">
                 <Zap size={11} className="text-purple-400" />
-                <span className="text-xs text-purple-300 font-medium">DM desde {dmStart===0?"antes del dataset":history[dmStart]?.date??dmStart}</span>
+                <span className="text-xs text-purple-300 font-medium">
+                  DM desde {dmStart===0?"antes del dataset":history[dmStart]?.date??dmStart}
+                  {dmPauseIdx!=null&&dmResumeIdx!=null&&(
+                    <span className="text-amber-400 ml-1">· Pausa {history[dmPauseIdx]?.date??""} → Retoma {history[dmResumeIdx]?.date??""}</span>
+                  )}
+                </span>
               </div>
             )}
             <button onClick={()=>setShowAlgo(v=>!v)}
@@ -2058,8 +2085,12 @@ const DecayTab = ({ track, catalog }) => {
             <YAxis tickFormatter={fmt.k} tick={{fontSize:9,fill:"#64748b"}} axisLine={false} tickLine={false} width={48} />
             <Tooltip content={<DecayTooltip />} />
             <Legend wrapperStyle={{fontSize:"11px",paddingTop:"8px"}} />
-            {showAlgo&&<Line dataKey="Streams Algorítmicos" stroke="#f97316" strokeWidth={1.5} dot={false} connectNulls={false} strokeOpacity={0.85} />}
+            <Line dataKey="Streams Algorítmicos" stroke="#f97316" strokeWidth={showAlgo?1.5:0} dot={false} connectNulls={false} strokeOpacity={showAlgo?0.85:0} legendType={showAlgo?"line":"none"} />
             <Line dataKey="Streams Reales" stroke="#10b981" strokeWidth={2.5} dot={false} connectNulls={false} activeDot={{r:4,fill:"#10b981",stroke:"#0f172a",strokeWidth:2}} />
+            {dmLabel&&<ReferenceLine x={dmLabel} stroke="#a855f7" strokeWidth={1} strokeDasharray="4 4" label={{value:"DM ▶",fontSize:9,fill:"#a855f7",position:"top"}} />}
+            {dmPauseLabel&&dmResumeLabel&&<ReferenceArea x1={dmPauseLabel} x2={dmResumeLabel} fill="#f59e0b" fillOpacity={0.06} />}
+            {dmPauseLabel&&<ReferenceLine x={dmPauseLabel} stroke="#f59e0b" strokeWidth={1} strokeDasharray="4 4" label={{value:"⏸ Pausa",fontSize:9,fill:"#f59e0b",position:"top"}} />}
+            {dmResumeLabel&&<ReferenceLine x={dmResumeLabel} stroke="#22d3ee" strokeWidth={1} strokeDasharray="4 4" label={{value:"▶ Retoma",fontSize:9,fill:"#22d3ee",position:"top"}} />}
           </ComposedChart>
         </ResponsiveContainer>
         {pop&&(
@@ -2080,6 +2111,8 @@ const DecayTab = ({ track, catalog }) => {
                   return <div className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-xs"><span className="text-slate-400">{label} </span><span className="text-amber-400 font-bold">{v}/100</span></div>;
                 }} />
                 {dmLabel&&<ReferenceLine x={dmLabel} stroke="#a855f7" strokeWidth={1} strokeDasharray="4 4" />}
+                {dmPauseLabel&&<ReferenceLine x={dmPauseLabel} stroke="#f59e0b" strokeWidth={1} strokeDasharray="3 3" />}
+                {dmResumeLabel&&<ReferenceLine x={dmResumeLabel} stroke="#22d3ee" strokeWidth={1} strokeDasharray="3 3" />}
                 {lastActualLabel&&<ReferenceLine x={lastActualLabel} stroke="#475569" strokeWidth={1} strokeDasharray="3 3" />}
                 <Line dataKey="Popularity" stroke="#f59e0b" strokeWidth={2} dot={false} connectNulls={true} />
               </LineChart>
@@ -2906,7 +2939,7 @@ const DMManagerTab = ({ catalog, onUpdateStatus, dmOverrides, onUpdateDM, onRemo
 //  DM AUDIT TAB
 // ════════════════════════════════════════════════════════════════
 const DMAuditTab = ({ track }) => {
-  const { dm, sources, status, name, history, dmStart, dmEnd, endDate } = track;
+  const { dm, sources, status, name, history, dmStart, dmEnd, dmPauseIdx, dmResumeIdx, endDate } = track;
   if (status==="none"||status==="candidate") return (
     <div className="p-6 flex items-center justify-center min-h-64">
       <div className="text-center max-w-sm">
@@ -2969,6 +3002,8 @@ const DMAuditTab = ({ track }) => {
           <p className={`text-5xl font-black ${CV[liftC].text}`}>{dm.liftPct!=null?(dm.liftPct>0?"+":"")+dm.liftPct+"%":"—"}</p>
           <p className="text-xs text-slate-400 mt-1">
             En DM desde: {dmStart===0 ? "Antes de Mar 2025 (sin fecha exacta)" : (history[dmStart]?.label ?? "—")}
+            {dmPauseIdx!=null&&<span className="text-amber-400 ml-1">· Pausa: {history[dmPauseIdx]?.label ?? "—"}</span>}
+            {dmResumeIdx!=null&&<span className="text-cyan-400 ml-1">· Retoma: {history[dmResumeIdx]?.label ?? "—"}</span>}
             {status==="completed" && endDateStr && <span className="text-amber-400 ml-2">· Fin: {endDateStr}</span>}
           </p>
           <p className="text-xs text-slate-500 mt-2">{dm.noBaseline ? "Sin datos pre-DM — baseline no calculable" : "Streams Reales vs Baseline EWLS Orgánico"}</p>
@@ -3009,6 +3044,20 @@ const DMAuditTab = ({ track }) => {
         <StatCard label="Revenue Bruto Incremental" value={dm.noBaseline?"—":fmt.usd(dm.gross)} sub={dm.noBaseline?"Sin datos pre-DM":`${fmt.k(dm.incremental)} streams × $${track.royalty}/stream`} color="emerald" icon={DollarSign} />
         <StatCard label="Revenue Neto (post-comisión)" value={dm.noBaseline?"—":fmt.usd(dm.net)} sub={dm.noBaseline?"Sin datos pre-DM":`Comisión Spotify: ${fmt.usd(dm.commission)}`} color={dm.net!=null&&dm.net>0?"emerald":"rose"} icon={TrendingUp} />
       </div>
+      {dm.pausedDays > 0 && (
+        <div className="flex items-center gap-3 bg-amber-500/8 border border-amber-500/25 rounded-xl px-5 py-3">
+          <span className="text-amber-400 text-base">⏸</span>
+          <div className="flex-1 min-w-0">
+            <span className="text-sm font-semibold text-amber-300">Pausa DM: {dm.pausedDays} días</span>
+            <span className="text-xs text-amber-500/80 ml-2">
+              {history[dmPauseIdx]?.label ?? "—"} → {history[dmResumeIdx]?.label ?? "—"}
+            </span>
+          </div>
+          <div className="text-xs text-amber-600 whitespace-nowrap">
+            {fmt.k(dm.pausedStreams)} streams durante pausa (excluidos del cálculo DM)
+          </div>
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-4">
         <div className="bg-slate-900 rounded-xl border border-slate-800 p-5">
           <h3 className="text-sm font-semibold text-slate-200 mb-4">Waterfall de Revenue</h3>
@@ -3072,6 +3121,80 @@ const DMAuditTab = ({ track }) => {
           })()}
         </div>
       </div>
+      {/* ── Análisis visual: cambio algorítmico Pre-DM vs En DM ── */}
+      <div className="bg-slate-900 rounded-xl border border-slate-800 p-5">
+        <h3 className="text-sm font-semibold text-slate-200 mb-1">Impacto Algorítmico — Pre-DM vs En DM</h3>
+        <p className="text-xs text-slate-500 mb-4">Comparación de streams algorítmicos/día antes y durante Discovery Mode</p>
+        {(() => {
+          const pre = dm.preDmAlgoAvg ?? 0;
+          const dur = dm.campAlgoAvg ?? 0;
+          const maxVal = Math.max(pre, dur, 1);
+          const delta = dm.algoDelta;
+          const preOrgAvg = pre > 0 && history?.length && (dmStart ?? 0) > 0
+            ? Math.round(history.slice(Math.max(0, dmStart - 30), dmStart).reduce((s,d) => s + d.streams - (d.programmedStreams??0), 0) / Math.min(30, dmStart))
+            : 0;
+          const durOrgAvg = dur > 0 && dm.campOrgObs != null && dm.observed != null
+            ? Math.round((dm.observed - dm.campProgObs) / (history.slice(dmStart, dmEnd ?? history.length).length || 1))
+            : 0;
+          const maxTotal = Math.max(pre + preOrgAvg, dur + durOrgAvg, 1);
+          return (
+            <div className="space-y-5">
+              <div className="grid grid-cols-2 gap-6">
+                {/* Pre-DM bar */}
+                <div>
+                  <p className="text-xs text-slate-400 mb-2">Pre-DM (30 días antes)</p>
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 bg-slate-800 rounded-full h-6 overflow-hidden flex">
+                        <div className="h-6 bg-orange-500/80 rounded-l-full flex items-center justify-end pr-1.5" style={{width:`${(pre/maxTotal)*100}%`,minWidth:pre>0?"20px":"0"}}>
+                          {pre>0&&<span className="text-xs text-white font-bold">{fmt.k(pre)}</span>}
+                        </div>
+                        <div className="h-6 bg-cyan-500/50 flex items-center justify-end pr-1.5" style={{width:`${(preOrgAvg/maxTotal)*100}%`,minWidth:preOrgAvg>0?"20px":"0"}}>
+                          {preOrgAvg>0&&<span className="text-xs text-white font-bold">{fmt.k(preOrgAvg)}</span>}
+                        </div>
+                      </div>
+                    </div>
+                    <p className="text-xs text-slate-500">Total: {fmt.k(pre + preOrgAvg)}/día</p>
+                  </div>
+                </div>
+                {/* En DM bar */}
+                <div>
+                  <p className="text-xs text-slate-400 mb-2">En DM (campaña activa)</p>
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 bg-slate-800 rounded-full h-6 overflow-hidden flex">
+                        <div className="h-6 bg-orange-500/80 rounded-l-full flex items-center justify-end pr-1.5" style={{width:`${(dur/maxTotal)*100}%`,minWidth:dur>0?"20px":"0"}}>
+                          {dur>0&&<span className="text-xs text-white font-bold">{fmt.k(dur)}</span>}
+                        </div>
+                        <div className="h-6 bg-cyan-500/50 flex items-center justify-end pr-1.5" style={{width:`${(durOrgAvg/maxTotal)*100}%`,minWidth:durOrgAvg>0?"20px":"0"}}>
+                          {durOrgAvg>0&&<span className="text-xs text-white font-bold">{fmt.k(durOrgAvg)}</span>}
+                        </div>
+                      </div>
+                    </div>
+                    <p className="text-xs text-slate-500">Total: {fmt.k(dur + durOrgAvg)}/día</p>
+                  </div>
+                </div>
+              </div>
+              {/* Delta summary */}
+              <div className="flex items-center gap-4 bg-slate-800/60 rounded-xl p-4 border border-slate-700/50">
+                <div className={`text-3xl font-black ${(delta??0)>0?"text-emerald-400":(delta??0)<0?"text-rose-400":"text-slate-400"}`}>
+                  {delta!=null?`${delta>0?"+":""}${delta}%`:"—"}
+                </div>
+                <div className="flex-1">
+                  <p className="text-sm text-slate-200 font-medium">Cambio en streams algorítmicos</p>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    {pre>0&&dur>0?`De ${fmt.k(pre)}/día a ${fmt.k(dur)}/día (${dm.algoDeltaAbs!=null?(dm.algoDeltaAbs>0?"+":"")+fmt.k(dm.algoDeltaAbs):"—"}/día)`:"Sin datos pre-DM suficientes"}
+                  </p>
+                </div>
+                <div className="flex gap-3 text-xs">
+                  <div className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-orange-500/80 inline-block" /><span className="text-slate-400">Algo</span></div>
+                  <div className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-cyan-500/50 inline-block" /><span className="text-slate-400">Orgánico</span></div>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+      </div>
       <div className="bg-slate-900 rounded-xl border border-slate-800 p-5">
         <h3 className="text-sm font-semibold text-slate-200 mb-1">Visualización del Lift</h3>
         <p className="text-xs text-slate-500 mb-4">Streams reales vs baseline orgánico — área sombreada = impacto incremental DM</p>
@@ -3086,6 +3209,12 @@ const DMAuditTab = ({ track }) => {
             <Area dataKey="Streams Reales" fill="#10b981" fillOpacity={0.2} stroke="#10b981" strokeWidth={2} />
             {dmStart!=null&&dmStart>0&&<ReferenceLine x={history[dmStart]?.label} stroke="#a855f7" strokeWidth={1.5} strokeDasharray="4 4"
               label={{value:"DM ▶",fontSize:10,fill:"#a855f7",position:"top"}} />}
+            {dmPauseIdx!=null&&history[dmPauseIdx]&&<ReferenceLine x={history[dmPauseIdx]?.label} stroke="#f59e0b" strokeWidth={1.5} strokeDasharray="4 4"
+              label={{value:"⏸ Pausa",fontSize:9,fill:"#f59e0b",position:"top"}} />}
+            {dmResumeIdx!=null&&history[dmResumeIdx]&&<ReferenceLine x={history[dmResumeIdx]?.label} stroke="#22d3ee" strokeWidth={1.5} strokeDasharray="4 4"
+              label={{value:"▶ Retoma",fontSize:9,fill:"#22d3ee",position:"top"}} />}
+            {dmPauseIdx!=null&&dmResumeIdx!=null&&history[dmPauseIdx]&&history[dmResumeIdx]&&
+              <ReferenceArea x1={history[dmPauseIdx]?.label} x2={history[dmResumeIdx]?.label} fill="#f59e0b" fillOpacity={0.06} />}
             {dmEnd!=null&&history[dmEnd]&&<ReferenceLine x={history[dmEnd]?.label} stroke="#f59e0b" strokeWidth={1.5} strokeDasharray="4 4"
               label={{value:"◼ Fin",fontSize:10,fill:"#f59e0b",position:"top"}} />}
           </ComposedChart>
