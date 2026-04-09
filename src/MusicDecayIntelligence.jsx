@@ -321,9 +321,11 @@ const _DM_CONFIG = {
   "s4a-026": { status:"active", dmStart:0   },  // Arde
   "s4a-027": { status:"active", dmStart:0   },  // Tu defecto es el mío
   "s4a-031": { status:"active", dmStart:0   },  // Comodín
+  "s4a-007": { status:"active", dmStart:0   },  // Ángel Con Campera
+  "s4a-010": { status:"active", dmStart:0   },  // A Las Nueve
   "s4a-036": { status:"active", dmStart:0   },  // Paranoia
   "s4a-041": { status:"active", dmStart:0   },  // Sin pena ni gloria
-  "s4a-103": { status:"completed", dmStart:0, dmEnd:314 },  // Ángel con campera
+  "s4a-103": { status:"active", dmStart:0   },  // Ángel Con Campera (En Vivo)
   // Active — Wave 2026-02-01 (entered DM day 314, baseline calculable):
   "s4a-005": { status:"active", dmStart:314 },  // No Te Imaginas
   "s4a-012": { status:"active", dmStart:314 },  // Cero a la izquierda
@@ -1911,7 +1913,7 @@ const PerformanceTab = ({ tracks }) => {
 const DecayTab = ({ track, catalog }) => {
   const [viewMode, setViewMode] = useState("daily");
   const [showContext, setShowContext] = useState(false);
-  const [showAlgo, setShowAlgo] = useState(false);
+  const [showAlgo, setShowAlgo] = useState(true);
   const { metrics, history, dmStart, dmEnd, dmPauseIdx, dmResumeIdx } = track;
 
   // All hooks must be called unconditionally (Rules of Hooks)
@@ -3427,37 +3429,73 @@ const DMAuditTab = ({ track }) => {
           </div>
 
           {/* ── P&L: ¿convino salir de DM? ── */}
+          {(() => {
+            const daysOut = postDmSlice.length;
+            // Ahorro total de comisión desde que salió de DM
+            const totalCommSaved  = +(dm.dmCommPerDay * daysOut).toFixed(2);
+            // Revenue perdido por streams caídos (total acumulado)
+            const totalRevLost    = +(Math.max(0, dm.revLostPerDay) * daysOut).toFixed(2);
+            // Balance neto acumulado desde salida
+            const totalNetBalance = +(totalCommSaved - totalRevLost).toFixed(2);
+            // Revenue de streams algo durante DM a tasa plena (sin 30% cut)
+            const algoFullRev     = +(dm.campAlgoAvg * track.royalty * daysOut).toFixed(2);
+            // Lo que pagabas de comisión sobre esos algo durante DM
+            const algoCommPaid    = +(dm.campAlgoAvg * track.royalty * 0.30 * (dm.dmAvg > 0 ? daysOut : 0)).toFixed(2);
+            return (
           <div className="grid grid-cols-2 gap-4">
-            {/* Left: Waterfall financiero post-DM */}
+            {/* Left: Ahorro acumulado */}
             <div className="bg-slate-900 rounded-xl border border-slate-800 p-5">
-              <h3 className="text-sm font-semibold text-slate-200 mb-1">Balance Diario: Dentro vs Fuera de DM</h3>
-              <p className="text-xs text-slate-500 mb-4">Revenue por día — con comisión (en DM) vs sin comisión (post-DM)</p>
+              <h3 className="text-sm font-semibold text-slate-200 mb-1">Impacto Financiero de Salir de DM</h3>
+              <p className="text-xs text-slate-500 mb-4">Acumulado en {daysOut} días desde el fin de la campaña</p>
               <div className="space-y-2">
                 {[
-                  {label:"Revenue/día en DM (neto de comisión)",value:dm.dmRevPerDay,color:"text-purple-400",prefix:"$"},
-                  {label:`  Comisión/día pagada`,value:dm.dmCommPerDay,color:"text-rose-400",prefix:"−$",sub:true},
-                  {label:"Revenue/día post-DM (sin comisión)",value:dm.postDmRevPerDay,color:"text-emerald-400",prefix:"$"},
-                  {label:`  Streams perdidos/día`,value:dm.streamsLostPerDay,color:dm.streamsLostPerDay>0?"text-rose-400":"text-emerald-400",
-                    prefix:dm.streamsLostPerDay>0?"−":"+"  ,suffix:" streams",isFmt:true,sub:true},
-                  {label:"Balance neto/día (salir vs quedarse)",value:dm.postDmNetBalance,
-                    color:dm.postDmNetBalance>=0?"text-emerald-400":"text-rose-400",
-                    prefix:dm.postDmNetBalance>=0?"+$":"−$",abs:true,border:true},
+                  {label:"Comisión ahorrada (30% algo streams)",
+                   value:totalCommSaved, color:"text-emerald-400", sign:"+$",
+                   tip:`${fmt.exact(dm.campAlgoAvg)} algo/día × $${track.royalty} × 30% × ${daysOut}d`},
+                  {label:"Revenue perdido por caída de streams",
+                   value:totalRevLost, color:totalRevLost>0?"text-rose-400":"text-emerald-400",
+                   sign:totalRevLost>0?"−$":"+$",
+                   tip:`${fmt.exact(Math.max(0,dm.streamsLostPerDay))} streams/día menos × $${track.royalty} × ${daysOut}d`},
+                  {label:`Balance neto acumulado`,
+                   value:Math.abs(totalNetBalance),
+                   color:totalNetBalance>=0?"text-emerald-400":"text-rose-400",
+                   sign:totalNetBalance>=0?"+$":"−$", border:true,
+                   tip:totalNetBalance>=0?"Salir de DM fue rentable":"Salir de DM generó pérdida neta"},
                 ].map(row=>(
-                  <div key={row.label} className={`flex items-center justify-between p-3 rounded-lg ${row.border?"bg-slate-800 border border-slate-700":"bg-slate-800/40"}`}>
-                    <span className={`text-xs ${row.sub?"text-slate-500":"text-slate-300"}`}>{row.label}</span>
-                    <span className={`text-sm font-bold ${row.color}`}>
-                      {row.isFmt
-                        ? `${row.prefix}${fmt.exact(Math.abs(row.value))}${row.suffix||""}`
-                        : `${row.prefix}${(row.abs?Math.abs(row.value):row.value).toFixed(4)}`}
-                    </span>
+                  <div key={row.label} className={`flex items-start justify-between gap-3 p-3 rounded-lg ${row.border?"bg-slate-800 border border-slate-700":"bg-slate-800/40"}`}>
+                    <div className="min-w-0">
+                      <p className="text-xs text-slate-300">{row.label}</p>
+                      {row.tip && <p className="text-[10px] text-slate-600 mt-0.5 truncate">{row.tip}</p>}
+                    </div>
+                    <span className={`text-sm font-bold whitespace-nowrap ${row.color}`}>{row.sign}{fmt.usd(row.value)}</span>
                   </div>
                 ))}
+              </div>
+              {/* Proyección mensual */}
+              <div className="mt-3 bg-slate-800/60 border border-slate-700/50 rounded-lg p-3">
+                <p className="text-xs text-slate-400 mb-2 font-medium">Proyección mensual (30 días)</p>
+                <div className="flex justify-between items-center">
+                  <span className="text-xs text-slate-500">Ahorro comisión/mes</span>
+                  <span className="text-xs font-bold text-emerald-400">+${fmt.usd(dm.dmCommPerDay*30)}</span>
+                </div>
+                <div className="flex justify-between items-center mt-1">
+                  <span className="text-xs text-slate-500">Pérdida streams/mes</span>
+                  <span className={`text-xs font-bold ${dm.revLostPerDay>0?"text-rose-400":"text-emerald-400"}`}>
+                    {dm.revLostPerDay>0?"−$":"+$"}{fmt.usd(Math.abs(dm.revLostPerDay)*30)}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center mt-1 pt-1 border-t border-slate-700">
+                  <span className="text-xs text-slate-400 font-medium">Balance neto/mes</span>
+                  <span className={`text-xs font-bold ${dm.postDmNetBalance>=0?"text-emerald-400":"text-rose-400"}`}>
+                    {dm.postDmNetBalance>=0?"+$":"−$"}{fmt.usd(Math.abs(dm.postDmNetBalance)*30)}
+                  </span>
+                </div>
               </div>
               {dm.postDmBreakeven != null && (
                 <div className="mt-3 bg-rose-500/8 border border-rose-500/20 rounded-lg p-3">
                   <p className="text-xs text-rose-300 leading-relaxed">
                     <AlertTriangle size={11} className="inline mr-1" />
-                    Si los streams se mantienen en este nivel, la pérdida acumulada supera el ahorro de comisión en <strong>{dm.postDmBreakeven} días</strong>. Considerar reingresar a DM.
+                    La pérdida acumulada supera el ahorro en <strong>{dm.postDmBreakeven} días</strong> desde la salida. Considerar reingresar a DM.
                   </p>
                 </div>
               )}
@@ -3465,7 +3503,7 @@ const DMAuditTab = ({ track }) => {
                 <div className="mt-3 bg-emerald-500/8 border border-emerald-500/20 rounded-lg p-3">
                   <p className="text-xs text-emerald-300 leading-relaxed">
                     <CheckCircle size={11} className="inline mr-1" />
-                    Salir de DM es rentable: el ahorro en comisión ({`$${dm.dmCommPerDay.toFixed(4)}/día`}) supera la pérdida de streams. Beneficio neto: <strong>+${dm.postDmNetBalance.toFixed(4)}/día</strong>.
+                    Salir de DM fue la decisión correcta. El ahorro en comisión supera la pérdida de streams en <strong>+${fmt.usd(totalNetBalance)}</strong> acumulados.
                   </p>
                 </div>
               )}
@@ -3518,9 +3556,11 @@ const DMAuditTab = ({ track }) => {
               )}
             </div>
           </div>
+          );
+          })()}
 
           {/* ── Stream retention cards ── */}
-          <div className="grid grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 gap-3">
             {[
               {
                 label: "Avg Post-DM",
@@ -3533,18 +3573,6 @@ const DMAuditTab = ({ track }) => {
                 value: dm.postDmDelta != null ? (dm.postDmDelta > 0 ? "+" : "") + dm.postDmDelta + "%" : "—",
                 sub: `${fmt.k(dm.dmAvg)} avg en DM`,
                 color: dm.postDmDelta == null ? "text-slate-500" : dm.postDmDelta >= -15 ? "text-emerald-400" : "text-rose-400",
-              },
-              {
-                label: "vs Piso Orgánico",
-                value: postVsFloor != null ? (postVsFloor > 0 ? "+" : "") + postVsFloor + "%" : "—",
-                sub: `${fmt.k(postOrgFloorAvg)} piso est.`,
-                color: postVsFloor == null ? "text-slate-500" : postVsFloor >= 0 ? "text-cyan-400" : "text-rose-400",
-              },
-              {
-                label: "Tendencia",
-                value: retentionTrend != null ? (retentionTrend > 0 ? "+" : "") + retentionTrend + "%" : postDmSlice.length < 28 ? "< 28d" : "—",
-                sub: "últ 14d vs prim 14d",
-                color: retentionTrend == null ? "text-slate-500" : retentionTrend >= 0 ? "text-emerald-400" : "text-amber-400",
               },
             ].map(card => (
               <div key={card.label} className="bg-slate-900 border border-slate-800 rounded-xl p-4">
