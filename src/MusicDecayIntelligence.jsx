@@ -326,7 +326,6 @@ const _DM_CONFIG = {
   "s4a-010": { status:"active", dmStart:0   },  // A Las Nueve
   "s4a-036": { status:"active", dmStart:0   },  // Paranoia
   "s4a-041": { status:"active", dmStart:0   },  // Sin pena ni gloria
-  "s4a-103": { status:"active", dmStart:0   },  // Ángel Con Campera (En Vivo)
   // Active — Wave 2026-02-01 (entered DM day 314, baseline calculable):
   "s4a-005": { status:"active", dmStart:314 },  // No Te Imaginas
   "s4a-012": { status:"active", dmStart:314 },  // Cero a la izquierda
@@ -1272,6 +1271,41 @@ const DynamicIsland = ({ track, isTrackTab, totalTracks }) => {
 // ════════════════════════════════════════════════════════════════
 const ARTISTS = ["Downtown", "DPR"];
 
+// ── Mini sparkline (últimas 4 semanas) ──────────────────────────
+const MiniSparkline = ({ history, color = "#64748b" }) => {
+  if (!history?.length) return null;
+  const vals = history.filter(d => !d.isForecast && d.streams > 0).slice(-28).map(d => d.streams);
+  if (vals.length < 4) return null;
+  const min = Math.min(...vals), max = Math.max(...vals), range = max - min || 1;
+  const W = 44, H = 14;
+  const pts = vals.map((v, i) =>
+    `${(i / (vals.length - 1)) * W},${H - 2 - ((v - min) / range) * (H - 4)}`
+  ).join(" ");
+  return (
+    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="shrink-0 opacity-75">
+      <polyline points={pts} fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+};
+
+// ── Urgency score para sort ──────────────────────────────────────
+const _urgencyScore = (t) => {
+  let s = 0;
+  if (t.status === "active") {
+    if (t.dm?.liftPct != null && t.dm.liftPct <= 0)  s += 30;
+    else if (t.dm?.liftPct != null && t.dm.liftPct <= 5) s += 15;
+    if (t.dm?.postDmBreakeven != null) s += 25;
+  }
+  const mom = t.metrics?.mom4w ?? 0;
+  if (mom < -15) s += 20;
+  else if (mom < -5) s += 10;
+  return s;
+};
+const _hasAlert = (t) =>
+  (t.status === "active" && t.dm?.liftPct != null && t.dm.liftPct <= 5) ||
+  (t.metrics?.mom4w ?? 0) < -15 ||
+  (t.status === "active" && t.dm?.postDmBreakeven != null);
+
 const Sidebar = ({ tracks, selectedId, onSelect, search, onSearch, filter, onFilter, artist, onArtist }) => {
   const [sortBy, setSortBy] = useState("streams");
   const filtered = tracks
@@ -1279,6 +1313,8 @@ const Sidebar = ({ tracks, selectedId, onSelect, search, onSearch, filter, onFil
     .filter(t => filter==="all"||t.status===filter)
     .sort((a,b) => sortBy==="momentum"
       ? (b.metrics?.mom4w??0)-(a.metrics?.mom4w??0)
+      : sortBy==="urgente"
+      ? _urgencyScore(b) - _urgencyScore(a)
       : (b.metrics?.avgStreams??0)-(a.metrics?.avgStreams??0));
   return (
     <div className="w-60 bg-slate-900 border-r border-slate-800 flex flex-col h-full flex-shrink-0">
@@ -1314,7 +1350,7 @@ const Sidebar = ({ tracks, selectedId, onSelect, search, onSearch, filter, onFil
         </div>
         <div className="flex gap-1 mt-2 items-center">
           <span className="text-xs text-slate-600 mr-0.5 flex-shrink-0">↕</span>
-          {[["streams","Streams"],["momentum","Mom"]].map(([id,lbl])=>(
+          {[["streams","Streams"],["momentum","Mom"],["urgente","🚨"]].map(([id,lbl])=>(
             <button key={id} onClick={()=>setSortBy(id)}
               className={`flex-1 text-xs py-1 rounded-md transition-colors ${sortBy===id?"bg-slate-700 text-white":"text-slate-500 hover:text-slate-300"}`}>{lbl}</button>
           ))}
@@ -1322,20 +1358,30 @@ const Sidebar = ({ tracks, selectedId, onSelect, search, onSearch, filter, onFil
       </div>
       <div className="flex-1 overflow-y-auto">
         {filtered.map(t => {
-          const sel = t.id===selectedId;
-          const mom = t.metrics?.mom4w??0;
+          const sel  = t.id === selectedId;
+          const mom  = t.metrics?.mom4w ?? 0;
+          const alert = _hasAlert(t);
+          const sparkColor = mom > 2 ? "#10b981" : mom < -5 ? "#f43f5e" : "#64748b";
           return (
             <button key={t.id} onClick={()=>onSelect(t.id)}
-              className={`w-full text-left p-3 border-b border-slate-800/50 transition-all hover:bg-slate-800/60 ${sel?"bg-slate-800 border-l-2 border-l-emerald-500":""}`}>
-              <div className="flex items-center justify-between mb-0.5">
-                <p className={`text-sm font-medium truncate pr-2 ${sel?"text-white":"text-slate-300"}`}>{t.name}</p>
-                <span className={`text-xs font-bold flex-shrink-0 ${mom>0?"text-emerald-400":"text-rose-400"}`}>{mom>0?"+":""}{mom.toFixed(0)}%</span>
+              className={`w-full text-left px-3 py-2.5 border-b border-slate-800/50 transition-all hover:bg-slate-800/60 ${sel?"bg-slate-800 border-l-2 border-l-emerald-500":alert?"border-l-2 border-l-rose-500/60":""}`}>
+              {/* Fila 1: nombre + alert dot + mom% */}
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  {alert && <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0 animate-pulse" />}
+                  <p className={`text-xs font-medium truncate ${sel?"text-white":"text-slate-300"}`}>{t.name}</p>
+                </div>
+                <span className={`text-[10px] font-bold flex-shrink-0 ml-1 ${mom>0?"text-emerald-400":mom<-5?"text-rose-400":"text-slate-500"}`}>
+                  {mom>0?"+":""}{mom.toFixed(0)}%
+                </span>
               </div>
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-slate-500">{fmt.k(t.metrics?.avgStreams??0)}/día</span>
-                <div className="flex items-center gap-1.5">
+              {/* Fila 2: streams/día + sparkline + badge */}
+              <div className="flex items-center justify-between gap-1">
+                <span className="text-[10px] text-slate-500 shrink-0">{fmt.k(t.metrics?.avgStreams??0)}/día</span>
+                <MiniSparkline history={t.history} color={sparkColor} />
+                <div className="flex items-center gap-1 shrink-0">
                   {t.popMetrics?.current!=null&&(
-                    <span className="text-xs font-mono text-amber-400/80">⭐{t.popMetrics.current}</span>
+                    <span className="text-[9px] font-mono text-amber-400/70">⭐{t.popMetrics.current}</span>
                   )}
                   <Badge status={t.status} />
                 </div>
@@ -1501,6 +1547,8 @@ const DashboardTab = ({ tracks, onSelectTrack }) => {
   const activeDM = tracks.filter(t=>t.status==="active");
   const candidates = tracks.filter(t=>t.status==="candidate");
   const totalNet = activeDM.reduce((s,t)=>s+(t.dm?.net??0),0);
+  // Revenue proyectado: suma de dmRevPerDay × 30 días para tracks activos
+  const projectedMonthly = +activeDM.reduce((s,t)=>s+(t.dm?.dmRevPerDay??0)*30,0).toFixed(2);
   const barData = sorted
     .filter(t=>t.status==="active"||t.status==="completed")
     .map(t=>{
@@ -1511,11 +1559,12 @@ const DashboardTab = ({ tracks, onSelectTrack }) => {
     });
   return (
     <div className="p-5 space-y-5">
-      <div className="grid grid-cols-4 gap-4">
-        <StatCard label="Total Streams/Día" value={fmt.k(totalStreams)} sub={`${tracks.length} tracks — NTVG`} color="slate" icon={Activity} />
-        <StatCard label="Campañas DM Activas" value={activeDM.length} sub={`${candidates.length} candidatos listos`} color="purple" icon={Zap} />
-        <StatCard label="Revenue Neto DM" value={fmt.usd(totalNet)} sub="Tras comisión Spotify 30%" color="emerald" icon={DollarSign} />
-        <StatCard label="Candidatos DM" value={candidates.length} sub="Alta estabilidad · Organic Floor" color="amber" icon={Target} />
+      <div className="grid grid-cols-5 gap-4">
+        <StatCard label="Total Streams/Día" value={fmt.k(totalStreams)} sub={`${tracks.length} tracks`} color="slate" icon={Activity} />
+        <StatCard label="Campañas DM Activas" value={activeDM.length} sub={`${candidates.length} candidatos`} color="purple" icon={Zap} />
+        <StatCard label="Revenue Neto Histórico" value={fmt.usd(totalNet)} sub="Total acumulado en campaña" color="emerald" icon={DollarSign} />
+        <StatCard label="Proyección Mensual" value={fmt.usd(projectedMonthly)} sub="Neto DM actual × 30d" color="cyan" icon={TrendingUp} />
+        <StatCard label="Candidatos DM" value={candidates.length} sub="Perfil algo + k bajo" color="amber" icon={Target} />
       </div>
       <div className="grid grid-cols-7 gap-4" style={{minHeight:"320px"}}>
         <div className="col-span-3 bg-slate-900 rounded-xl border border-slate-800 p-4 flex flex-col">
@@ -2544,7 +2593,23 @@ const DecayTab = ({ track, catalog }) => {
 
         {/* DM Score breakdown */}
         <div className="bg-slate-800/20 rounded-xl p-3 border border-slate-700/30">
-          <p className="text-[9px] text-slate-500 font-semibold uppercase tracking-wider mb-2">Desglose DM Score</p>
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-[9px] text-slate-500 font-semibold uppercase tracking-wider">Desglose DM Score</p>
+            {(() => {
+              const rank = (catalog ?? []).filter(t => t.id !== track.id && t.metrics).filter(t => {
+                const ao = Math.min(35, Math.round(((t.history?.filter(d=>!d.isForecast&&d.streams>0).slice(-7).reduce((s,d)=>s+(d.programmedStreams??0),0)/7) / Math.max(1,(t.history?.filter(d=>!d.isForecast&&d.streams>0).slice(-7).reduce((s,d)=>s+d.streams,0)/7))) * 35));
+                const oo = (t.metrics?.mom4w??0) > 10 ? 25 : (t.metrics?.mom4w??0) > 0 ? 18 : (t.metrics?.mom4w??0) > -10 ? 10 : 3;
+                return ao + oo > insight.dmScore - 15; // rough proxy
+              }).length + 1;
+              const total = (catalog ?? []).filter(t => t.metrics).length;
+              const pct = total > 0 ? Math.round((rank / total) * 100) : null;
+              return (
+                <span className={`text-[9px] font-bold ${rank <= total * 0.25 ? "text-emerald-400" : rank <= total * 0.5 ? "text-amber-400" : "text-slate-500"}`}>
+                  #{rank} de {total} {pct !== null && `(top ${pct}%)`}
+                </span>
+              );
+            })()}
+          </div>
           <div className="grid grid-cols-4 gap-2">
             {[
               { label: "Algorítmico", pts: insight.dmScoreBreakdown.algoComp, max: 35, color: "#f97316" },
@@ -4212,6 +4277,31 @@ export default function MusicDecayIntelligence() {
   const handleArtistChange = (a) => { setSelectedArtist(a); setSelectedId(null); };
   const handleUpdateStatus = (id, status) => handleUpdateDM(id, { status });
 
+  // ── Keyboard navigation ←/→ ──────────────────────────────────
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      e.preventDefault();
+      const ids = artistCatalog.map(t => t.id);
+      const cur = ids.indexOf(selectedId);
+      if (e.key === "ArrowLeft"  && cur > 0)              setSelectedId(ids[cur - 1]);
+      if (e.key === "ArrowRight" && cur < ids.length - 1) setSelectedId(ids[cur + 1]);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [artistCatalog, selectedId]);
+
+  // ── Next alert track ─────────────────────────────────────────
+  const nextAlertTrack = useMemo(() =>
+    artistCatalog.find(t => t.id !== selectedId && _hasAlert(t)) ?? null,
+    [artistCatalog, selectedId]
+  );
+
+  // ── DM slots ─────────────────────────────────────────────────
+  const usedSlots = artistCatalog.filter(t => t.status === "active").length;
+  const freeSlots = DM_SLOTS - usedSlots;
+
   // Overlay panels (Dashboard, Manager, Performance) sit on top of the main track view
   const [overlay, setOverlay] = React.useState(null); // "dashboard" | "manager" | "performance" | null
   const OVERLAY_PANELS=[
@@ -4251,6 +4341,26 @@ export default function MusicDecayIntelligence() {
           </nav>
 
           <div className="flex items-center gap-1">
+            {/* Slots warning */}
+            {freeSlots <= 5 && (
+              <span className={`text-[10px] font-semibold px-2 py-1 rounded-lg border mr-1 ${freeSlots === 0 ? "bg-rose-500/15 border-rose-500/30 text-rose-300" : "bg-amber-500/15 border-amber-500/30 text-amber-300"}`}>
+                {freeSlots === 0 ? "⚠ Sin slots" : `⚠ ${freeSlots} slots`}
+              </span>
+            )}
+            {/* Next alert track */}
+            {nextAlertTrack && (
+              <button onClick={() => handleSelect(nextAlertTrack.id)}
+                title={`Ir a: ${nextAlertTrack.name}`}
+                className="flex items-center gap-1.5 text-[10px] px-2.5 py-1.5 rounded-lg border border-rose-500/30 bg-rose-500/10 text-rose-300 hover:bg-rose-500/20 transition-colors mr-1">
+                <AlertTriangle size={11} />
+                {nextAlertTrack.name.split(" ").slice(0,2).join(" ")}
+              </button>
+            )}
+            {/* Keyboard hint */}
+            <span className="text-[9px] text-slate-700 mr-1 hidden xl:flex items-center gap-0.5">
+              <span className="bg-slate-800 border border-slate-700 rounded px-1">←</span>
+              <span className="bg-slate-800 border border-slate-700 rounded px-1">→</span>
+            </span>
             {/* Report panel buttons */}
             {OVERLAY_PANELS.map(({id,label,icon:Icon})=>(
               <button key={id} onClick={()=>setOverlay(id)}
