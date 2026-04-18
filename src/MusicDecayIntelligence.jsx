@@ -1062,3389 +1062,1362 @@ const fmt = {
   dec4:(n)=>(n??0).toFixed(4),
 };
 
-// ════════════════════════════════════════════════════════════════
-//  CURATED INSIGHTS
-// ════════════════════════════════════════════════════════════════
-const MOCK_INSIGHTS = {
-};
 
-async function loadCuratedInsight(track) {
-  await new Promise(r => setTimeout(r, 600));
-  return MOCK_INSIGHTS[track.id] ?? "Sin análisis disponible para este track.";
+// ════════════════════════════════════════════════════════════════
+//  DESIGN TOKENS
+// ════════════════════════════════════════════════════════════════
+function getTheme(tweaks) {
+  const dark = tweaks?.theme === "light" ? false : true;
+  if (dark) return {
+    bg:           "#0b0f14",
+    panel:        "#121821",
+    panel2:       "#1a212d",
+    border:       "rgba(255,255,255,0.08)",
+    borderStrong: "rgba(255,255,255,0.14)",
+    fg:           "#e8ecf1",
+    fgSoft:       "#b7bfcc",
+    muted:        "#7a8494",
+    mutedSoft:    "#556072",
+  };
+  return {
+    bg:           "#f5f6f8",
+    panel:        "#ffffff",
+    panel2:       "#fafbfc",
+    border:       "rgba(0,0,0,0.08)",
+    borderStrong: "rgba(0,0,0,0.14)",
+    fg:           "#0e141b",
+    fgSoft:       "#3b4553",
+    muted:        "#6a7484",
+    mutedSoft:    "#8a9aaa",
+  };
+}
+
+function getAccents(tweaks) {
+  const p = tweaks?.palette || "green-orange";
+  if (p === "teal-amber")  return { org:"#5eead4", dm:"#fbbf24", rev:"#c084fc", warn:"#fb7185", pos:"#5eead4" };
+  if (p === "mono-orange") return { org:"#94a3b8", dm:"#fb923c", rev:"#e879f9", warn:"#ef4444", pos:"#22c55e" };
+  return { org:"#2dd4a7", dm:"#f79448", rev:"#a78bfa", warn:"#f87171", pos:"#2dd4a7" };
 }
 
 // ════════════════════════════════════════════════════════════════
-//  SHARED UI COMPONENTS
+//  HELPERS / FORMATTERS
 // ════════════════════════════════════════════════════════════════
-const ChartTooltip = ({ active, payload, label }) => {
-  if (!active || !payload?.length) return null;
-  return (
-    <div className="bg-slate-800 border border-slate-700 rounded-lg p-3 text-xs shadow-2xl">
-      <p className="text-slate-400 mb-2 font-medium">{label}</p>
-      {payload.map((p,i) => (
-        <div key={i} className="flex items-center gap-2 mb-1">
-          <span className="w-2 h-2 rounded-full flex-shrink-0" style={{background:p.color}} />
-          <span className="text-slate-300">{p.name}:</span>
-          <span className="text-white font-bold">{typeof p.value==="number"&&p.value>100?fmt.k(p.value):p.value}</span>
-        </div>
-      ))}
-    </div>
-  );
-};
+const formatInt = (n) => Math.round(n ?? 0).toLocaleString();
+const formatPct = (n) => `${(n ?? 0) > 0 ? "+" : ""}${(n ?? 0).toFixed(1)}%`;
+const formatUSD = (n) => `$${Math.abs(n ?? 0).toFixed(2)}`;
+const fmtK = (n) => n >= 1e6 ? `${(n/1e6).toFixed(1)}M` : n >= 1e3 ? `${(n/1e3).toFixed(1)}K` : `${Math.round(n??0)}`;
 
-const DecayTooltip = ({ active, payload, label }) => {
-  if (!active || !payload?.length) return null;
-  const find = key => payload.find(p => p.dataKey === key);
-  const realVal = find("Streams Reales")?.value ?? null;
-  const algoVal = find("Streams Algorítmicos")?.value ?? null;
-  const popVal  = find("Popularity")?.value ?? null;
-  const orgVal  = (realVal != null && algoVal != null) ? realVal - algoVal : null;
-  const algoPct = (realVal != null && algoVal != null && realVal > 0) ? ((algoVal / realVal) * 100) : null;
-  return (
-    <div className="bg-slate-900 border border-slate-700 rounded-xl p-3 text-xs shadow-2xl" style={{minWidth:"200px"}}>
-      <p className="text-slate-300 font-semibold mb-2.5">{label}</p>
-      {realVal != null && (
-        <div className="flex items-center justify-between gap-5 mb-1.5">
-          <span className="text-emerald-400 font-medium">● Streams Totales</span>
-          <span className="text-white font-bold tabular-nums">{realVal.toLocaleString("es-AR")}</span>
-        </div>
-      )}
-      {realVal != null && algoVal != null && (
-        <>
-          <div className="flex items-center justify-between gap-5 mb-1">
-            <span className="text-orange-400 font-medium">▪ Algorítmico</span>
-            <span className="text-orange-300 font-bold tabular-nums">{algoVal.toLocaleString("es-AR")}</span>
-          </div>
-          <div className="flex items-center justify-between gap-5 mb-1">
-            <span className="text-cyan-400 font-medium">▪ Orgánico</span>
-            <span className="text-cyan-300 font-bold tabular-nums">{orgVal.toLocaleString("es-AR")}</span>
-          </div>
-          <div className="flex items-center justify-between gap-5 pt-1.5 border-t border-slate-800">
-            <span className="text-slate-400">% Algorítmico</span>
-            <span className="text-orange-400 font-bold">{algoPct.toFixed(1)}%</span>
-          </div>
-        </>
-      )}
-      {realVal != null && algoVal == null && (
-        <div className="flex items-center justify-between gap-5 mb-1 pt-1 border-t border-slate-800">
-          <span className="text-slate-500 italic">Activá "Algorítmico" para ver desglose</span>
-        </div>
-      )}
-      {popVal != null && (
-        <div className="flex items-center justify-between gap-5 pt-1.5 border-t border-slate-800">
-          <span className="text-amber-400 font-medium">★ Popularity</span>
-          <span className="text-amber-300 font-bold tabular-nums">{popVal}/100</span>
-        </div>
-      )}
-    </div>
-  );
-};
+// ════════════════════════════════════════════════════════════════
+//  DATA ADAPTERS
+// ════════════════════════════════════════════════════════════════
+function adaptTrack(track) {
+  const history = track.history ?? [];
+  const n = history.length;
 
-const CV = {
-  emerald:{card:"bg-emerald-500/10 border-emerald-500/20",text:"text-emerald-400",badge:"bg-emerald-500/20 text-emerald-400 border-emerald-500/30"},
-  rose:   {card:"bg-rose-500/10 border-rose-500/20",   text:"text-rose-400",   badge:"bg-rose-500/20 text-rose-400 border-rose-500/30"},
-  purple: {card:"bg-purple-500/10 border-purple-500/20",text:"text-purple-400",badge:"bg-purple-500/20 text-purple-400 border-purple-500/30"},
-  amber:  {card:"bg-amber-500/10 border-amber-500/20", text:"text-amber-400", badge:"bg-amber-500/20 text-amber-400 border-amber-500/30"},
-  slate:  {card:"bg-slate-800 border-slate-700",        text:"text-slate-300", badge:"bg-slate-700/50 text-slate-400 border-slate-600"},
-};
+  // Group daily history into weekly buckets
+  const weekBuckets = [];
+  for (let i = 0; i < n; i += 7) {
+    const slice = history.slice(i, Math.min(i + 7, n));
+    const org = slice.reduce((s, d) => s + Math.max(0, (d.streams ?? 0) - (d.programmedStreams ?? 0)), 0);
+    const alg = slice.reduce((s, d) => s + (d.programmedStreams ?? 0), 0);
+    weekBuckets.push({ org, alg });
+  }
 
-const StatCard = ({ label, value, sub, color="slate", icon:Icon }) => {
-  const v = CV[color];
-  return (
-    <div className={`rounded-xl border p-4 ${v.card}`}>
-      <div className="flex items-start justify-between">
-        <div className="min-w-0 flex-1">
-          <p className="text-xs text-slate-400 mb-1">{label}</p>
-          <p className={`text-2xl font-black truncate ${v.text}`}>{value}</p>
-          {sub && <p className="text-xs text-slate-500 mt-1 leading-tight">{sub}</p>}
-        </div>
-        {Icon && <Icon size={16} className={`${v.text} opacity-60 flex-shrink-0 ml-2`} />}
-      </div>
-    </div>
-  );
-};
+  // Take last 52 weeks
+  const weeks52 = weekBuckets.slice(-52);
+  // Pad to 52 if shorter
+  while (weeks52.length < 52) weeks52.unshift({ org: 0, alg: 0 });
+  const organic     = weeks52.map(w => w.org);
+  const algorithmic = weeks52.map(w => w.alg);
 
-const Badge = ({ status, endDate }) => {
-  const map = {
-    active:    {cls:CV.emerald.badge, label:"● DM Activo"},
-    candidate: {cls:CV.purple.badge,  label:"◆ Candidato"},
-    completed: {cls:CV.amber.badge,   label:"✓ Completado"},
+  // DM start week in the 52-week array
+  let dmStartWeek = undefined;
+  if (track.dmStart != null) {
+    const dmWeekFull = Math.floor(track.dmStart / 7);
+    const offset = Math.max(0, weekBuckets.length - 52);
+    const dmWeek52 = dmWeekFull - offset;
+    if (dmWeek52 >= 0 && dmWeek52 < 52) dmStartWeek = dmWeek52;
+  }
+
+  const totalOrg = organic.reduce((s, v) => s + v, 0);
+  const totalAlg = algorithmic.reduce((s, v) => s + v, 0);
+  const totalAll = totalOrg + totalAlg;
+  const algShare = totalAll > 0 ? Math.round((totalAlg / totalAll) * 1000) / 10 : 0;
+
+  // Decay score 0-100
+  let decayScore = 50;
+  if (track.metrics) {
+    const { structK = 0.02, organicFloor = 0.1, mom4w = 0 } = track.metrics;
+    const kFactor    = Math.max(0, 1 - structK / 0.05);
+    const floorFactor = Math.min(1, organicFloor / 0.25);
+    const momFactor  = Math.max(0, Math.min(1, (mom4w + 40) / 80));
+    decayScore = Math.round(kFactor * 50 + floorFactor * 30 + momFactor * 20);
+  }
+
+  // Status mapping: active→dm_active, completed→completed, else→idle
+  const statusMap = { active: "dm_active", completed: "completed" };
+  const displayStatus = statusMap[track.status] || "idle";
+
+  const momentum = Math.round((track.metrics?.mom4w ?? 0) * 10) / 10;
+  const dmLift   = track.dm?.liftPct != null ? Math.round(track.dm.liftPct) : 0;
+  const totalStreams = history.reduce((s, d) => s + (d.streams ?? 0), 0);
+  const currentWeekly = weeks52.length > 0
+    ? (weeks52[weeks52.length - 1].org + weeks52[weeks52.length - 1].alg)
+    : 0;
+
+  return {
+    ...track,
+    title:           track.name,
+    displayStatus,
+    organic,
+    algorithmic,
+    total:           organic.map((v, i) => v + (algorithmic[i] ?? 0)),
+    totalStreams,
+    organicStreams:  totalOrg,
+    algorithmicStreams: totalAlg,
+    algShare,
+    momentum,
+    dmLift,
+    decayScore,
+    dmStartWeek,
+    currentWeekly,
   };
-  if (!map[status]) return null;
-  const {cls,label} = map[status];
-  const dateStr = status === "completed" && endDate
-    ? (() => { const d = new Date(endDate + "T12:00:00"); return d.toLocaleDateString("es-AR",{day:"numeric",month:"short",year:"2-digit"}); })()
-    : null;
-  return (
-    <div className="flex flex-col items-end gap-0.5">
-      <span className={`text-xs px-2 py-0.5 rounded-full border font-medium whitespace-nowrap ${cls}`}>{label}</span>
-      {dateStr && <span className="text-[9px] text-amber-500/70 whitespace-nowrap">{dateStr}</span>}
-    </div>
-  );
-};
+}
+
+function buildWaterfallForTrack(track) {
+  const dm = track.dm;
+  if (!dm) {
+    return { preDm:0, enDmOrg:0, enDmAlg:0, revenueBruto:0, incAlg:0, incOrg:0, comision:0, revenueNeto:0, algShare:0, orgShare:100 };
+  }
+  const preDm    = Math.round(dm.baseline ?? 0);
+  const enDmAlg  = Math.round(dm.campProgObs ?? dm.observed * (dm.algoRatio ?? 0) ?? 0);
+  const enDmOrg  = Math.round(dm.campOrgObs ?? dm.observed * (1 - (dm.algoRatio ?? 0)) ?? 0);
+  const revenueBruto = dm.gross != null ? +dm.gross : ((enDmAlg + enDmOrg) * 0.00092);
+  const incAlg   = dm.algoGross ?? enDmAlg * 0.00092;
+  const incOrg   = dm.orgGross  ?? enDmOrg * 0.00092;
+  const comision  = dm.commission ?? 0;
+  const revenueNeto = dm.net != null ? +dm.net : (revenueBruto - comision);
+  const totalS    = enDmAlg + enDmOrg;
+  const algShare  = totalS > 0 ? Math.round((enDmAlg / totalS) * 100) : 0;
+  return {
+    preDm,
+    enDmOrg,
+    enDmAlg,
+    revenueBruto: Math.round(revenueBruto * 100) / 100,
+    incAlg:        Math.round(incAlg * 100) / 100,
+    incOrg:        Math.round(incOrg * 100) / 100,
+    comision:      Math.round(comision * 100) / 100,
+    revenueNeto:   Math.round(revenueNeto * 100) / 100,
+    algShare,
+    orgShare:      100 - algShare,
+  };
+}
+
+function buildMonthlyData(tracks) {
+  // Group all track histories by month and aggregate
+  const monthMap = {};
+  tracks.forEach(track => {
+    (track.history ?? []).forEach(d => {
+      if (!d.date) return;
+      const monthKey = d.date.slice(0, 7); // "YYYY-MM"
+      if (!monthMap[monthKey]) monthMap[monthKey] = { streams: 0, prog: 0, rev: 0, count: 0 };
+      monthMap[monthKey].streams += d.streams ?? 0;
+      monthMap[monthKey].prog    += d.programmedStreams ?? 0;
+    });
+  });
+
+  const monthKeys = Object.keys(monthMap).sort();
+  // Only show last 12 months that have data
+  const recent = monthKeys.slice(-12);
+
+  const MONTH_LABELS = {
+    "01":"Ene","02":"Feb","03":"Mar","04":"Abr","05":"May","06":"Jun",
+    "07":"Jul","08":"Ago","09":"Sep","10":"Oct","11":"Nov","12":"Dic"
+  };
+  return recent.map((k, i) => {
+    const d = monthMap[k];
+    const [yr, mo] = k.split("-");
+    const label = `${MONTH_LABELS[mo]} ${yr.slice(2)}`;
+    const orgStreams = Math.max(0, d.streams - d.prog);
+    const dmStreams  = d.prog;
+    const streamsTotal = d.streams;
+    const revenueNeto = +(streamsTotal * 0.00092 * 0.7).toFixed(2);
+    const liftDM = dmStreams > 0 && orgStreams > 0 ? +((dmStreams / orgStreams * 100)).toFixed(1) : 0;
+    const tracksDM = tracks.filter(t => {
+      const hist = t.history ?? [];
+      return hist.some(h => h.date?.startsWith(k) && h.programmedStreams > 0);
+    }).length;
+    return { month: label, streamsTotal, orgStreams, dmStreams, liftDM, tracksDM, revenueNeto, efficiency: "—" };
+  });
+}
 
 // ════════════════════════════════════════════════════════════════
-//  DYNAMIC ISLAND
+//  CHART COMPONENTS (pure SVG)
 // ════════════════════════════════════════════════════════════════
-const DynamicIsland = ({ track, isTrackTab, totalTracks }) => {
-  const showTrack = isTrackTab && !!track;
+function DualAreaChart({ organic = [], algorithmic = [], orgColor, algColor, dmStartWeek, height = 260 }) {
+  const WIDTH = 800;
+  const total = organic.map((v, i) => v + (algorithmic[i] ?? 0));
+  const max = (Math.max(...total, 1)) * 1.1;
+  const n = organic.length;
+  if (n < 2) return null;
+  const xAt = i => (i / (n - 1)) * WIDTH;
+  const yAt = v => height - (v / max) * height;
 
-  const glowColor = !showTrack ? 'none'
-    : track.status === 'active'    ? '0 0 14px rgba(16,185,129,0.25)'
-    : track.status === 'candidate' ? '0 0 14px rgba(168,85,247,0.25)'
-    : track.status === 'completed' ? '0 0 14px rgba(245,158,11,0.20)'
-    : 'none';
+  const orgPath = organic.map((v, i) => `${i === 0 ? "M" : "L"}${xAt(i).toFixed(1)},${yAt(v).toFixed(1)}`).join(" ");
+  const algOnOrg = algorithmic.map((v, i) => yAt((organic[i] ?? 0) + v));
+  const algTopPath = algorithmic.map((v, i) => `${i === 0 ? "M" : "L"}${xAt(i).toFixed(1)},${algOnOrg[i].toFixed(1)}`).join(" ");
+  const orgArea = `${orgPath} L${WIDTH},${height} L0,${height} Z`;
+  const algArea = `${algTopPath} ${organic.slice().reverse().map((v, ri) => `L${xAt(n - 1 - ri).toFixed(1)},${yAt(v).toFixed(1)}`).join(" ")} Z`;
 
-  const dotColor = !track ? '#475569'
-    : track.status === 'active'    ? '#10b981'
-    : track.status === 'candidate' ? '#a855f7'
-    : track.status === 'completed' ? '#f59e0b'
-    : '#475569';
-
-  const WAVE_HEIGHTS = [4,7,5,10,7,9,5,8,4];
-  const WAVE_DELAYS  = ['0ms','180ms','90ms','270ms','120ms','210ms','60ms','150ms','30ms'];
+  const yTicks = [0, 0.25, 0.5, 0.75, 1].map(t => ({ y: height - t * height, label: fmtK(max * t) }));
+  const xTicks = [0, Math.floor(n/4), Math.floor(n/2), Math.floor(3*n/4), n-1];
 
   return (
-    <div style={{
-      display:'flex', alignItems:'center', gap:'8px',
-      background:'#0a0a10',
-      border: showTrack ? '1px solid rgba(100,116,139,0.45)' : '1px solid rgba(51,65,85,0.35)',
-      borderRadius:'9999px',
-      padding: showTrack ? '5px 11px 5px 8px' : '5px 13px',
-      transition:'all 0.45s cubic-bezier(0.4,0,0.2,1)',
-      minWidth: showTrack ? '185px' : '175px',
-      boxShadow: glowColor,
-    }}>
-      {showTrack ? (
-        <>
-          {/* Glowing status dot */}
-          <div style={{position:'relative', flexShrink:0, width:14, height:14, display:'flex', alignItems:'center', justifyContent:'center'}}>
-            {track.status === 'active' && (
-              <div className="animate-ping" style={{
-                position:'absolute', inset:0, borderRadius:'50%',
-                background: dotColor, opacity:0.4,
-              }} />
-            )}
-            <div style={{
-              width:7, height:7, borderRadius:'50%',
-              background: dotColor,
-              boxShadow: dotColor + ' 0 0 6px',
-              position:'relative', zIndex:1,
-            }} />
-          </div>
-          {/* Name + artist */}
-          <div style={{display:'flex', flexDirection:'column', lineHeight:1, minWidth:0, flex:1}}>
-            <span style={{
-              fontSize:11, fontWeight:650, color:'#e2e8f0',
-              overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:118,
-              letterSpacing:'-0.01em',
-            }}>{track.name}</span>
-            <span style={{fontSize:9, color:'#64748b', marginTop:2.5}}>{track.artist}</span>
-          </div>
-          <Badge status={track.status} />
-        </>
-      ) : (
-        <>
-          {/* Waveform — staggered animate-pulse via inline animationDelay */}
-          <div style={{display:'flex', gap:2, alignItems:'flex-end', height:13, flexShrink:0}}>
-            {WAVE_HEIGHTS.map((h, i) => (
-              <div key={i} className="animate-pulse" style={{
-                width:2, height:h, borderRadius:2,
-                background:'rgba(168,85,247,0.75)',
-                animationDelay: WAVE_DELAYS[i],
-                animationDuration:'1.1s',
-              }} />
-            ))}
-          </div>
-          <span style={{fontSize:11, fontWeight:500, color:'#cbd5e1', whiteSpace:'nowrap'}}>
-            {totalTracks} canciones
-          </span>
-          <span style={{fontSize:10, color:'#475569', whiteSpace:'nowrap'}}>· catálogo</span>
-        </>
+    <svg width="100%" viewBox={`-50 -10 ${WIDTH + 70} ${height + 36}`} style={{ display: "block", overflow: "visible" }}>
+      {yTicks.map((t, i) => (
+        <g key={i}>
+          <line x1="0" x2={WIDTH} y1={t.y} y2={t.y} stroke="currentColor" strokeWidth="0.5" opacity="0.08" />
+          <text x="-10" y={t.y + 3} textAnchor="end" fontSize="10" fontFamily="IBM Plex Mono, monospace" fill="currentColor" opacity="0.45">{t.label}</text>
+        </g>
+      ))}
+      {dmStartWeek !== undefined && dmStartWeek >= 0 && dmStartWeek < n && (
+        <g>
+          <line x1={xAt(dmStartWeek)} x2={xAt(dmStartWeek)} y1="0" y2={height} stroke={algColor} strokeWidth="1" strokeDasharray="4,3" opacity="0.7" />
+          <rect x={xAt(dmStartWeek) - 32} y="-8" width="64" height="14" fill={algColor} opacity="0.15" rx="2" />
+          <text x={xAt(dmStartWeek)} y="2" textAnchor="middle" fontSize="9" fontFamily="IBM Plex Mono, monospace" fill={algColor} letterSpacing="0.06em">DM START</text>
+        </g>
       )}
-    </div>
-  );
-};
-
-// ════════════════════════════════════════════════════════════════
-//  SIDEBAR
-// ════════════════════════════════════════════════════════════════
-const ARTISTS = ["Downtown", "DPR"];
-
-// ── Mini sparkline (últimas 4 semanas) ──────────────────────────
-const MiniSparkline = ({ history, color = "#64748b" }) => {
-  if (!history?.length) return null;
-  const vals = history.filter(d => !d.isForecast && d.streams > 0).slice(-28).map(d => d.streams);
-  if (vals.length < 4) return null;
-  const min = Math.min(...vals), max = Math.max(...vals), range = max - min || 1;
-  const W = 44, H = 14;
-  const pts = vals.map((v, i) =>
-    `${(i / (vals.length - 1)) * W},${H - 2 - ((v - min) / range) * (H - 4)}`
-  ).join(" ");
-  return (
-    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="shrink-0 opacity-75">
-      <polyline points={pts} fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      <path d={orgArea} fill={orgColor} opacity="0.22" />
+      <path d={algArea} fill={algColor} opacity="0.22" />
+      <path d={orgPath} fill="none" stroke={orgColor} strokeWidth="1.5" />
+      <path d={algTopPath} fill="none" stroke={algColor} strokeWidth="1.5" />
+      {xTicks.map((i, j) => (
+        <text key={j} x={xAt(i)} y={height + 16} textAnchor="middle" fontSize="10" fontFamily="IBM Plex Mono, monospace" fill="currentColor" opacity="0.45">W{i+1}</text>
+      ))}
     </svg>
   );
-};
+}
 
-// ── Urgency score para sort ──────────────────────────────────────
-const _urgencyScore = (t) => {
-  let s = 0;
-  if (t.status === "active") {
-    if (t.dm?.liftPct != null && t.dm.liftPct <= 0)  s += 30;
-    else if (t.dm?.liftPct != null && t.dm.liftPct <= 5) s += 15;
-    if (t.dm?.postDmBreakeven != null) s += 25;
-  }
-  const mom = t.metrics?.mom4w ?? 0;
-  if (mom < -15) s += 20;
-  else if (mom < -5) s += 10;
-  return s;
-};
-const _hasAlert = (t) =>
-  (t.status === "active" && t.dm?.liftPct != null && t.dm.liftPct <= 5) ||
-  (t.metrics?.mom4w ?? 0) < -15 ||
-  (t.status === "active" && t.dm?.postDmBreakeven != null);
-
-const Sidebar = ({ tracks, selectedId, onSelect, search, onSearch, filter, onFilter, artist, onArtist }) => {
-  const [sortBy, setSortBy] = useState("streams");
-  const filtered = tracks
-    .filter(t => { const q=search.toLowerCase(); return t.name.toLowerCase().includes(q)||t.artist.toLowerCase().includes(q); })
-    .filter(t => filter==="all"||t.status===filter)
-    .sort((a,b) => sortBy==="momentum"
-      ? (b.metrics?.mom4w??0)-(a.metrics?.mom4w??0)
-      : sortBy==="urgente"
-      ? _urgencyScore(b) - _urgencyScore(a)
-      : (b.metrics?.avgStreams??0)-(a.metrics?.avgStreams??0));
+function MonthlyBars({ data = [], orgColor, dmColor, revColor, height = 220 }) {
+  const WIDTH = 800;
+  if (!data.length) return null;
+  const max = Math.max(...data.map(d => d.streamsTotal), 1) * 1.1;
+  const maxRev = Math.max(...data.map(d => d.revenueNeto), 1) * 1.2;
+  const bw = WIDTH / data.length;
+  const revPts = data.map((d, i) => [i * bw + bw / 2, height - (d.revenueNeto / maxRev) * height]);
+  const revPath = revPts.map((p, i) => `${i === 0 ? "M" : "L"}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(" ");
   return (
-    <div className="w-60 bg-slate-900 border-r border-slate-800 flex flex-col h-full flex-shrink-0">
-      <div className="p-4 border-b border-slate-800">
-        <div className="flex items-center gap-2.5 mb-3">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500 to-emerald-400 flex items-center justify-center">
-            <Activity size={15} className="text-white" />
-          </div>
-          <div>
-            <p className="text-sm font-bold text-white">Music Decay</p>
-            <p className="text-xs text-slate-500">{artist} · {tracks.length} tracks</p>
-          </div>
-        </div>
-        {/* Artist selector */}
-        <div className="flex gap-1 mb-3 bg-slate-800/60 rounded-lg p-0.5">
-          {ARTISTS.map(a => (
-            <button key={a} onClick={()=>onArtist(a)}
-              className={`flex-1 text-xs py-1.5 rounded-md font-medium transition-all ${artist===a?"bg-slate-600 text-white shadow":"text-slate-400 hover:text-slate-200"}`}>
-              {a}
-            </button>
-          ))}
-        </div>
-        <div className="relative mb-3">
-          <Search size={12} className="absolute left-2.5 top-2.5 text-slate-500" />
-          <input value={search} onChange={e=>onSearch(e.target.value)} placeholder="Buscar track…"
-            className="w-full bg-slate-800 text-slate-200 text-xs pl-8 pr-3 py-2 rounded-lg border border-slate-700 focus:border-emerald-500 focus:outline-none placeholder-slate-600" />
-        </div>
-        <div className="flex gap-1">
-          {[["all","Todos"],["active","DM"],["candidate","Cand."],["completed","Hecho"]].map(([id,lbl])=>(
-            <button key={id} onClick={()=>onFilter(id)}
-              className={`flex-1 text-xs py-1 rounded-md transition-colors ${filter===id?"bg-slate-700 text-white":"text-slate-500 hover:text-slate-300"}`}>{lbl}</button>
-          ))}
-        </div>
-        <div className="flex gap-1 mt-2 items-center">
-          <span className="text-xs text-slate-600 mr-0.5 flex-shrink-0">↕</span>
-          {[["streams","Streams"],["momentum","Mom"],["urgente","🚨"]].map(([id,lbl])=>(
-            <button key={id} onClick={()=>setSortBy(id)}
-              className={`flex-1 text-xs py-1 rounded-md transition-colors ${sortBy===id?"bg-slate-700 text-white":"text-slate-500 hover:text-slate-300"}`}>{lbl}</button>
-          ))}
-        </div>
-      </div>
-      <div className="flex-1 overflow-y-auto">
-        {filtered.map(t => {
-          const sel  = t.id === selectedId;
-          const mom  = t.metrics?.mom4w ?? 0;
-          const alert = _hasAlert(t);
-          const sparkColor = mom > 2 ? "#10b981" : mom < -5 ? "#f43f5e" : "#64748b";
-          return (
-            <button key={t.id} onClick={()=>onSelect(t.id)}
-              className={`w-full text-left px-3 py-2.5 border-b border-slate-800/50 transition-all hover:bg-slate-800/60 ${sel?"bg-slate-800 border-l-2 border-l-emerald-500":alert?"border-l-2 border-l-rose-500/60":""}`}>
-              {/* Fila 1: nombre + alert dot + mom% */}
-              <div className="flex items-center justify-between mb-1">
-                <div className="flex items-center gap-1.5 min-w-0">
-                  {alert && <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0 animate-pulse" />}
-                  <p className={`text-xs font-medium truncate ${sel?"text-white":"text-slate-300"}`}>{t.name}</p>
-                </div>
-                <span className={`text-[10px] font-bold flex-shrink-0 ml-1 ${mom>0?"text-emerald-400":mom<-5?"text-rose-400":"text-slate-500"}`}>
-                  {mom>0?"+":""}{mom.toFixed(0)}%
-                </span>
-              </div>
-              {/* Fila 2: streams/día + sparkline + badge */}
-              <div className="flex items-center justify-between gap-1">
-                <span className="text-[10px] text-slate-500 shrink-0">{fmt.k(t.metrics?.avgStreams??0)}/día</span>
-                <MiniSparkline history={t.history} color={sparkColor} />
-                <div className="flex items-center gap-1 shrink-0">
-                  {t.popMetrics?.current!=null&&(
-                    <span className="text-[9px] font-mono text-amber-400/70">⭐{t.popMetrics.current}</span>
-                  )}
-                  <Badge status={t.status} />
-                </div>
-              </div>
-            </button>
-          );
-        })}
-        {filtered.length===0&&tracks.length===0&&(
-          <div className="p-6 text-center">
-            <p className="text-2xl mb-2">🎵</p>
-            <p className="text-xs text-slate-500 font-medium">Sin datos para {artist}</p>
-            <p className="text-xs text-slate-600 mt-1">Próximamente</p>
-          </div>
-        )}
-        {filtered.length===0&&tracks.length>0&&<div className="p-6 text-center text-xs text-slate-600">Sin resultados</div>}
-      </div>
-      <div className="p-2 border-t border-slate-800 text-xs text-slate-700 text-center">{filtered.length}/{tracks.length} tracks</div>
-    </div>
-  );
-};
-
-// ════════════════════════════════════════════════════════════════
-//  DASHBOARD TAB
-// ════════════════════════════════════════════════════════════════
-const computeHealthScore = (t) => {
-  const m = t.metrics ?? {};
-  const decayPts = m.structK <= 0.01 ? 3 : m.structK <= 0.02 ? 2 : m.structK <= 0.03 ? 1 : 0;
-  const momPts   = m.mom4w > 5 ? 2 : m.mom4w > 0 ? 1 : 0;
-  const floorPts = m.organicFloor > 20 ? 2 : m.organicFloor > 10 ? 1 : 0;
-  const dmPts    = t.status==="active" ? (t.dm?.liftPct>20?3:t.dm?.liftPct>10?2:t.dm?.liftPct>0?1:0)
-                 : t.status==="candidate" ? 1 : 0;
-  return Math.min(10, decayPts + momPts + floorPts + dmPts);
-};
-
-const CatalogVizPanel = ({ tracks, onSelectTrack }) => {
-  const [vizTab, setVizTab] = React.useState("heatmap");
-  const statusColor = s => s==="active"?"#10b981":s==="candidate"?"#f97316":s==="completed"?"#f59e0b":"#475569";
-  const scoreColor  = s => s>=7?"#10b981":s>=4?"#f59e0b":"#f43f5e";
-  const scoreBg     = s => s>=7?"rgba(16,185,129,0.12)":s>=4?"rgba(245,158,11,0.12)":"rgba(244,63,94,0.12)";
-  const scoreBorder = s => s>=7?"rgba(16,185,129,0.35)":s>=4?"rgba(245,158,11,0.35)":"rgba(244,63,94,0.35)";
-  const maxStreams   = Math.max(...tracks.map(t=>t.metrics?.avgStreams??0), 1);
-  const bubbleData = tracks.map(t => ({
-    x: +(t.metrics?.structK ?? 0).toFixed(4),
-    y: +(t.metrics?.mom4w ?? 0).toFixed(1),
-    z: Math.max(t.metrics?.avgStreams ?? 0, 100),
-    name: t.name, status: t.status,
-    score: computeHealthScore(t),
-    id: t.id,
-  }));
-  const CustomBubbleDot = (props) => {
-    const { cx, cy, payload } = props;
-    const r = Math.max(6, Math.min(22, Math.sqrt(payload.z / maxStreams) * 55));
-    return <circle cx={cx} cy={cy} r={r} fill={statusColor(payload.status)} fillOpacity={0.75} stroke={statusColor(payload.status)} strokeWidth={1.5} style={{cursor:"pointer"}} onClick={()=>onSelectTrack(payload.id)} />;
-  };
-  const BubbleTooltip = ({ active, payload }) => {
-    if (!active || !payload?.length) return null;
-    const d = payload[0]?.payload;
-    if (!d) return null;
-    return (
-      <div className="bg-slate-900 border border-slate-700 rounded-xl p-3 text-xs shadow-2xl">
-        <p className="text-white font-bold mb-1">{d.name}</p>
-        <p className="text-slate-400">Decay k: <span className="text-white">{d.x}</span></p>
-        <p className="text-slate-400">Momentum: <span className={d.y>=0?"text-emerald-400":"text-rose-400"}>{d.y>=0?"+":""}{d.y}%</span></p>
-        <p className="text-slate-400">Avg/día: <span className="text-white">{fmt.k(d.z)}</span></p>
-        <p className="text-slate-400">Score: <span style={{color:scoreColor(d.score)}}>{d.score}/10</span></p>
-      </div>
-    );
-  };
-  return (
-    <>
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold text-slate-200">Catálogo</h3>
-        <div className="flex gap-1 bg-slate-800 rounded-lg p-0.5">
-          {[["heatmap","Heatmap"],["bubble","Burbujas"]].map(([id,label])=>(
-            <button key={id} onClick={()=>setVizTab(id)}
-              className={`text-xs px-2.5 py-1 rounded-md font-medium transition-all ${vizTab===id?"bg-slate-600 text-white":"text-slate-500 hover:text-slate-300"}`}>
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
-      {vizTab==="heatmap" && (
-        <div className="flex-1 flex flex-col min-h-0">
-          <div className="flex-1 grid gap-2" style={{gridTemplateColumns:`repeat(${Math.ceil(Math.sqrt(tracks.length))}, 1fr)`}}>
-            {[...tracks].sort((a,b)=>computeHealthScore(b)-computeHealthScore(a)).map(t => {
-              const score   = computeHealthScore(t);
-              const streamPct = (t.metrics?.avgStreams??0) / maxStreams;
-              return (
-                <button key={t.id} onClick={()=>onSelectTrack(t.id)}
-                  className="relative rounded-xl flex flex-col items-center justify-center transition-all hover:scale-105 hover:z-10 group overflow-hidden"
-                  style={{background:scoreBg(score), border:`1.5px solid ${scoreBorder(score)}`}}>
-                  <div className="absolute bottom-0 left-0 right-0 rounded-b-xl"
-                    style={{height:`${Math.max(3, streamPct * 30)}%`, background:scoreColor(score), opacity:0.18}} />
-                  {t.status==="active" && <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-emerald-400" />}
-                  {t.status==="candidate" && <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-purple-400" />}
-                  <span className="font-black text-lg leading-none" style={{color:scoreColor(score)}}>{score}</span>
-                  <span className="mt-1 px-1 text-center w-full leading-tight" style={{color:scoreColor(score),fontSize:"8px",opacity:0.6}}>
-                    {t.name.split(" ").slice(0,2).join(" ")}
-                  </span>
-                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block z-20 pointer-events-none">
-                    <div className="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs whitespace-nowrap shadow-xl">
-                      <p className="text-white font-semibold">{t.name}</p>
-                      <p className="text-slate-400">{fmt.k(t.metrics?.avgStreams??0)}/día · Mom {fmt.pct(t.metrics?.mom4w??0)}</p>
-                    </div>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-          <div className="flex items-center gap-4 mt-3 pt-3 border-t border-slate-800 flex-shrink-0">
-            {[["#10b981","7–10 Saludable"],["#f59e0b","4–6 Observación"],["#f43f5e","0–3 Riesgo"]].map(([c,l])=>(
-              <div key={l} className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{background:c,opacity:0.7}} />
-                <span className="text-xs text-slate-500">{l}</span>
-              </div>
-            ))}
-            <span className="text-xs text-slate-600 ml-auto">Barra inferior = streams/día</span>
-          </div>
-        </div>
-      )}
-      {vizTab==="bubble" && (
-        <div className="flex-1 flex flex-col min-h-0">
-          <div className="flex items-center gap-4 mb-1">
-            {[["#10b981","DM Activo"],["#f97316","Candidato"],["#f59e0b","Completado"],["#475569","Sin DM"]].map(([c,l])=>(
-              <div key={l} className="flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full flex-shrink-0" style={{background:c}} />
-                <span className="text-xs text-slate-500">{l}</span>
-              </div>
-            ))}
-          </div>
-          <div className="flex-1 min-h-0">
-          <ResponsiveContainer width="100%" height="100%">
-            <ScatterChart margin={{top:8,right:12,bottom:24,left:0}}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-              <XAxis type="number" dataKey="x" name="Decay k" domain={[0,"auto"]}
-                tick={{fontSize:8,fill:"#64748b"}} axisLine={false} tickLine={false}
-                label={{value:"Decay →",position:"insideBottom",offset:-12,fontSize:8,fill:"#475569"}} />
-              <YAxis type="number" dataKey="y" name="Momentum"
-                tick={{fontSize:8,fill:"#64748b"}} axisLine={false} tickLine={false}
-                label={{value:"Momentum ↑",angle:-90,position:"insideLeft",offset:12,fontSize:8,fill:"#475569"}} />
-              <ZAxis type="number" dataKey="z" range={[120,1400]} />
-              <ReferenceLine y={0} stroke="#334155" strokeDasharray="3 3" />
-              <ReferenceLine x={0.02} stroke="#334155" strokeDasharray="3 3" />
-              <Tooltip content={<BubbleTooltip />} />
-              {["active","candidate","completed","none"].map(s=>(
-                <Scatter key={s} data={bubbleData.filter(d=>d.status===s)}
-                  fill={statusColor(s)} fillOpacity={0.75}
-                  shape={<CustomBubbleDot />} />
-              ))}
-            </ScatterChart>
-          </ResponsiveContainer>
-          </div>
-          <p className="text-xs text-slate-600 text-center mt-1">Tamaño = streams/día · Click en burbuja para analizar</p>
-        </div>
-      )}
-    </>
-  );
-};
-
-const DashboardTab = ({ tracks, onSelectTrack }) => {
-  const sorted = [...tracks].sort((a,b)=>(b.metrics?.avgStreams??0)-(a.metrics?.avgStreams??0));
-  const totalStreams = tracks.reduce((s,t)=>s+(t.metrics?.avgStreams??0),0);
-  const activeDM = tracks.filter(t=>t.status==="active");
-  const candidates = tracks.filter(t=>t.status==="candidate");
-  const totalNet = activeDM.reduce((s,t)=>s+(t.dm?.net??0),0);
-  // Revenue proyectado: suma de dmRevPerDay × 30 días para tracks activos
-  const projectedMonthly = +activeDM.reduce((s,t)=>s+(t.dm?.dmRevPerDay??0)*30,0).toFixed(2);
-  const barData = sorted
-    .filter(t=>t.status==="active"||t.status==="completed")
-    .map(t=>{
-      const nm = t.name.length>14?t.name.slice(0,14)+"…":t.name;
-      return { name:nm, "Avg/día":t.metrics?.avgStreams??0,
-        lift: t.dm?.liftPct??null,
-        fill: t.status==="active"?"#10b981":"#f59e0b" };
-    });
-  return (
-    <div className="p-5 space-y-5">
-      <div className="grid grid-cols-5 gap-4">
-        <StatCard label="Total Streams/Día" value={fmt.k(totalStreams)} sub={`${tracks.length} tracks`} color="slate" icon={Activity} />
-        <StatCard label="Campañas DM Activas" value={activeDM.length} sub={`${candidates.length} candidatos`} color="purple" icon={Zap} />
-        <StatCard label="Revenue Neto Histórico" value={fmt.usd(totalNet)} sub="Total acumulado en campaña" color="emerald" icon={DollarSign} />
-        <StatCard label="Proyección Mensual" value={fmt.usd(projectedMonthly)} sub="Neto DM actual × 30d" color="cyan" icon={TrendingUp} />
-        <StatCard label="Candidatos DM" value={candidates.length} sub="Perfil algo + k bajo" color="amber" icon={Target} />
-      </div>
-      <div className="grid grid-cols-7 gap-4" style={{minHeight:"320px"}}>
-        <div className="col-span-3 bg-slate-900 rounded-xl border border-slate-800 p-4 flex flex-col">
-          <h3 className="text-sm font-semibold text-slate-200 mb-1">Ranking de Catálogo</h3>
-          <p className="text-xs text-slate-500 mb-3">Tracks en DM · Verde=Activo · Amarillo=Completado · % lift sobre baseline</p>
-          <div className="flex-1 min-h-0">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={barData} layout="vertical" barSize={14}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" horizontal={false} />
-              <XAxis type="number" tickFormatter={fmt.k} tick={{fontSize:9,fill:"#64748b"}} axisLine={false} tickLine={false} />
-              <YAxis type="category" dataKey="name" tick={{fontSize:9,fill:"#94a3b8"}} axisLine={false} tickLine={false} width={90} />
-              <Tooltip content={<ChartTooltip />} />
-              <Bar dataKey="Avg/día" radius={[0,4,4,0]}>
-                {barData.map((e,i)=>(<Cell key={i} fill={e.fill} />))}
-                <LabelList dataKey="lift" position="right" content={({x,y,width,height,value})=>{
-                  if(value==null)return null;
-                  const col=value>=0?"#10b981":"#f43f5e";
-                  return <text x={x+width+5} y={y+height/2} dy={4} fontSize={9} fill={col} fontWeight="bold">{value>=0?"+":""}{value.toFixed(1)}%</text>;
-                }} />
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-          </div>
-        </div>
-        <div className="col-span-4 bg-slate-900 rounded-xl border border-slate-800 p-4 flex flex-col">
-          {/* Tab toggle */}
-          <CatalogVizPanel tracks={tracks} onSelectTrack={onSelectTrack} />
-        </div>
-      </div>
-      {candidates.length>0&&(
-        <div className="bg-slate-900 rounded-xl border border-slate-800 p-4">
-          <div className="flex items-center gap-2 mb-4">
-            <Target size={15} className="text-purple-400" />
-            <h3 className="text-sm font-semibold text-slate-200">Candidatos Discovery Mode</h3>
-            <span className="text-xs text-slate-500 bg-slate-800 px-2 py-0.5 rounded-full">Alta estabilidad · Organic Floor consolidado</span>
-          </div>
-          <div className="grid grid-cols-4 gap-3">
-            {candidates.map(t=>(
-              <button key={t.id} onClick={()=>onSelectTrack(t.id)}
-                className="bg-slate-800/50 border border-purple-500/20 rounded-xl p-3 text-left hover:border-purple-500/50 hover:bg-slate-800 transition-all group">
-                <div className="flex items-start justify-between mb-2">
-                  <div>
-                    <p className="text-xs font-bold text-white group-hover:text-purple-200 leading-tight">{t.name}</p>
-                  </div>
-                  <Star size={12} className="text-purple-400 opacity-60 flex-shrink-0" />
-                </div>
-                <div className="grid grid-cols-2 gap-1.5">
-                  {[["Half-Life",`${t.metrics?.halfLife}w`,"text-purple-300"],["Flr",`${t.metrics?.organicFloor}%`,"text-purple-300"],
-                    ["Avg/día",fmt.k(t.metrics?.avgStreams??0),"text-white"],["Mom4W",fmt.pct(t.metrics?.mom4w??0),(t.metrics?.mom4w??0)>0?"text-emerald-400":"text-rose-400"]
-                  ].map(([l,v,c])=>(
-                    <div key={l}><p className="text-xs text-slate-600">{l}</p><p className={`text-sm font-bold ${c}`}>{v}</p></div>
-                  ))}
-                </div>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-    </div>
-  );
-};
-
-// ════════════════════════════════════════════════════════════════
-//  PERFORMANCE MENSUAL TAB
-// ════════════════════════════════════════════════════════════════
-const PerformanceTab = ({ tracks }) => {
-  const MONTH_NAMES = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
-  const today = new Date();
-  const currentYM = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}`;
-
-  // ── state ──────────────────────────────────────────────────────
-  const [dmSpend, setDmSpend]         = useState({});      // { "2026-01": 120.00, ... }
-  const [editSpend, setEditSpend]     = useState(null);    // ym being edited
-  const [spendInput, setSpendInput]   = useState("");
-  const [selectedMonth, setSelectedMonth] = useState(null); // drill-down ym
-  const [showForecast, setShowForecast]   = useState(false);
-
-  // ── build monthly data ─────────────────────────────────────────
-  const months = useMemo(() => {
-    const byMonth = {};
-    tracks.forEach(track => {
-      if (!track.history) return;
-      track.history.forEach((d, i) => {
-        if (!d.date) return;
-        const ym = d.date.slice(0,7);
-        if (!byMonth[ym]) byMonth[ym] = {
-          streams:0, blStreams:0, incStreams:0, revenue:0,
-          dmSet:new Set(), trackData:{},
-        };
-        byMonth[ym].streams += d.streams ?? 0;
-        const inDM = track.dmStart != null && i >= track.dmStart && (track.dmEnd == null || i < track.dmEnd);
-        if (!byMonth[ym].trackData[track.id]) byMonth[ym].trackData[track.id] = { name:track.name, streams:0, inc:0, rev:0, inDM:false };
-        byMonth[ym].trackData[track.id].streams += d.streams ?? 0;
-        if (inDM && d.baseline != null) {
-          byMonth[ym].blStreams  += d.baseline;
-          const inc = Math.max(0,(d.streams??0)-d.baseline);
-          byMonth[ym].incStreams += inc;
-          const rev = inc * track.royalty * (1 - CFG.DM_CUT);
-          byMonth[ym].revenue   += rev;
-          byMonth[ym].dmSet.add(track.id);
-          byMonth[ym].trackData[track.id].inc += inc;
-          byMonth[ym].trackData[track.id].rev += rev;
-          byMonth[ym].trackData[track.id].inDM = true;
-        }
-      });
-    });
-    return Object.entries(byMonth)
-      .sort(([a],[b])=>a.localeCompare(b))
-      .map(([ym, d]) => {
-        const [yr, mo] = ym.split("-");
-        const isCurrentMonth = ym === currentYM;
-        const daysInMonth = new Date(+yr, +mo, 0).getDate();
-        const dayOfMonth = isCurrentMonth ? today.getDate() : daysInMonth;
-        const projFactor = isCurrentMonth && dayOfMonth > 0 ? daysInMonth / dayOfMonth : 1;
-        const projStreams = isCurrentMonth ? Math.round(d.streams * projFactor) : null;
-        const projRevenue = isCurrentMonth ? +(d.revenue * projFactor).toFixed(2) : null;
-        const spend = dmSpend[ym] ?? 0;
-        const roi = d.revenue > 0 && spend > 0 ? +((d.revenue - spend) / spend * 100).toFixed(1) : null;
-        const top5 = Object.entries(d.trackData)
-          .map(([id, t]) => ({id, ...t}))
-          .sort((a,b) => b.streams - a.streams)
-          .slice(0, 5);
-        return {
-          ym, label:`${MONTH_NAMES[+mo-1]} ${yr.slice(2)}`,
-          streams: d.streams, blStreams: d.blStreams, incStreams: d.incStreams,
-          liftPct: d.blStreams>0 ? +((d.incStreams/d.blStreams)*100).toFixed(1) : null,
-          revenue: +d.revenue.toFixed(2),
-          dmCount: d.dmSet.size,
-          dmEfficiency: d.incStreams>0 ? +(d.revenue/d.incStreams*1000).toFixed(2) : null,
-          spend, roi,
-          projStreams, projRevenue, isCurrentMonth,
-          dayOfMonth, daysInMonth,
-          top5, trackData: d.trackData,
-        };
-      });
-  }, [tracks, dmSpend, currentYM]);
-
-  // ── forecast next 3 months from last month's trend ─────────────
-  const forecast = useMemo(() => {
-    if (months.length < 2) return [];
-    const last = months[months.length - 1];
-    const prev = months[months.length - 2];
-    const momStreams = prev.streams > 0 ? (last.streams - prev.streams) / prev.streams : 0;
-    const momRevenue = prev.revenue > 0 ? (last.revenue - prev.revenue) / prev.revenue : 0;
-    const result = [];
-    for (let i = 1; i <= 3; i++) {
-      const d = new Date(today.getFullYear(), today.getMonth() + i, 1);
-      const ym = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
-      const [yr, mo] = ym.split("-");
-      const factor = Math.pow(1 + momStreams * 0.6, i);
-      const rFactor = Math.pow(1 + momRevenue * 0.6, i);
-      result.push({
-        ym, label:`${MONTH_NAMES[+mo-1]} ${yr.slice(2)}`,
-        streams: Math.round(last.streams * factor),
-        revenue: +(last.revenue * rFactor).toFixed(2),
-        isForecast: true,
-      });
-    }
-    return result;
-  }, [months]);
-
-  const chartData = useMemo(() => {
-    const actual = months.map(m => ({
-      label: m.label,
-      "Streams Orgánicos": m.streams - m.incStreams,
-      "Lift DM": m.incStreams,
-      "Revenue Neto": m.revenue,
-      isForecast: false,
-    }));
-    if (!showForecast) return actual;
-    const fc = forecast.map(m => ({
-      label: m.label,
-      "Streams Orgánicos": m.streams,
-      "Lift DM": 0,
-      "Revenue Neto": m.revenue,
-      isForecast: true,
-    }));
-    return [...actual, ...fc];
-  }, [months, forecast, showForecast]);
-
-  // ── MoM delta helper ──────────────────────────────────────────
-  const mom = (arr, idx, key) => {
-    if (idx === 0) return null;
-    const prev = arr[idx-1][key]; const curr = arr[idx][key];
-    if (!prev || prev === 0) return null;
-    return +((curr - prev) / Math.abs(prev) * 100).toFixed(1);
-  };
-  const DeltaBadge = ({ val }) => {
-    if (val == null) return <span className="text-slate-700 text-xs">—</span>;
-    const pos = val >= 0;
-    return <span className={`text-xs font-bold ${pos?"text-emerald-400":"text-rose-400"}`}>{pos?"↑":"↓"}{Math.abs(val)}%</span>;
-  };
-
-  // ── CSV export ────────────────────────────────────────────────
-  const exportCSV = () => {
-    const rows = [["Mes","Streams Totales","Streams Orgánicos","Lift DM","% Lift DM","Tracks en DM","Revenue Neto DM","Gasto DM","ROI","Eficiencia ($/1K streams DM)"]];
-    months.forEach(m => rows.push([
-      m.label, m.streams, m.streams-m.incStreams, m.incStreams,
-      m.liftPct ?? "", m.dmCount, m.revenue.toFixed(2),
-      m.spend.toFixed(2), m.roi ?? "", m.dmEfficiency ?? "",
-    ]));
-    const csv = rows.map(r => r.join(",")).join("\n");
-    const a = document.createElement("a");
-    a.href = "data:text/csv;charset=utf-8," + encodeURIComponent(csv);
-    a.download = "performance_mensual_ntvg.csv";
-    a.click();
-  };
-
-  const drillMonth = selectedMonth ? months.find(m => m.ym === selectedMonth) : null;
-
-  return (
-    <div className="p-5 flex flex-col gap-5">
-      {/* ── Header ── */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-base font-bold text-white">Performance Mensual</h2>
-          <p className="text-xs text-slate-500 mt-0.5">Catálogo completo · streams, DM lift, revenue y ROI por mes</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button onClick={() => setShowForecast(f => !f)}
-            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors ${showForecast?"bg-purple-600/20 border-purple-500/40 text-purple-300":"bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200"}`}>
-            <TrendingUp size={11} /> Forecast +3m
-          </button>
-          <button onClick={exportCSV}
-            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-400 hover:text-slate-200 transition-colors">
-            <Download size={11} /> CSV
-          </button>
-        </div>
-      </div>
-
-      {/* ── KPI summary row ── */}
-      {(() => {
-        const last = months[months.length-1];
-        const prev = months[months.length-2];
-        if (!last) return null;
-        const kpis = [
-          { label:"Streams este mes", value:last.streams.toLocaleString("es-AR"), delta:mom(months,months.length-1,"streams"), sub: last.isCurrentMonth ? `Proyectado: ${last.projStreams?.toLocaleString("es-AR")} (día ${last.dayOfMonth}/${last.daysInMonth})` : null },
-          { label:"Lift DM", value: last.liftPct != null ? `+${last.liftPct}%` : "—", delta: last.liftPct != null && prev?.liftPct != null ? +(last.liftPct - prev.liftPct).toFixed(1) : null, sub:`${last.dmCount} tracks activos` },
-          { label:"Revenue neto DM", value:fmt.usd(last.revenue), delta:mom(months,months.length-1,"revenue"), sub: last.isCurrentMonth && last.projRevenue ? `Proyectado: ${fmt.usd(last.projRevenue)}` : null },
-          { label:"ROI campañas", value: last.roi != null ? `${last.roi>=0?"+":""}${last.roi}%` : "Sin gasto", delta:null, sub: last.spend > 0 ? `Gasto: ${fmt.usd(last.spend)}` : "Ingresá gasto abajo" },
-        ];
+    <svg width="100%" viewBox={`-40 -10 ${WIDTH + 80} ${height + 36}`} style={{ display: "block", overflow: "visible" }}>
+      {[0, 0.5, 1].map((t, i) => (
+        <g key={i}>
+          <line x1="0" x2={WIDTH} y1={height - t * height} y2={height - t * height} stroke="currentColor" strokeWidth="0.5" opacity="0.08" />
+          <text x="-8" y={height - t * height + 3} textAnchor="end" fontSize="9" fontFamily="IBM Plex Mono, monospace" fill="currentColor" opacity="0.45">{fmtK(max * t)}</text>
+        </g>
+      ))}
+      {data.map((d, i) => {
+        const orgH = (d.orgStreams / max) * height;
+        const dmH  = (d.dmStreams / max) * height;
+        const x = i * bw + bw * 0.2;
+        const w = bw * 0.6;
         return (
-          <div className="grid grid-cols-4 gap-3">
-            {kpis.map((k,i) => (
-              <div key={i} className="bg-slate-900 rounded-xl border border-slate-800 p-4">
-                <p className="text-xs text-slate-500 mb-1">{k.label}</p>
-                <div className="flex items-end gap-2">
-                  <p className="text-lg font-bold text-white">{k.value}</p>
-                  <DeltaBadge val={k.delta} />
-                </div>
-                {k.sub && <p className="text-xs text-slate-600 mt-1">{k.sub}</p>}
-              </div>
-            ))}
-          </div>
+          <g key={i}>
+            <rect x={x} y={height - orgH} width={w} height={orgH} fill={orgColor} opacity="0.75" />
+            <rect x={x} y={height - orgH - dmH} width={w} height={dmH} fill={dmColor} opacity="0.85" />
+          </g>
         );
-      })()}
-
-      {/* ── Stacked bar chart + revenue line ── */}
-      <div className="bg-slate-900 rounded-xl border border-slate-800 p-4">
-        <p className="text-xs text-slate-500 font-medium mb-3">Streams totales — Orgánico vs Lift DM{showForecast && <span className="ml-2 text-purple-400">+ Forecast</span>}</p>
-        <ResponsiveContainer width="100%" height={200}>
-          <ComposedChart data={chartData} margin={{top:4,right:50,bottom:0,left:0}}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-            <XAxis dataKey="label" tick={{fontSize:9,fill:"#64748b"}} axisLine={false} tickLine={false} />
-            <YAxis yAxisId="left" tick={{fontSize:9,fill:"#64748b"}} axisLine={false} tickLine={false} tickFormatter={v=>fmt.k(v)} />
-            <YAxis yAxisId="right" orientation="right" tick={{fontSize:9,fill:"#64748b"}} axisLine={false} tickLine={false} tickFormatter={v=>`$${fmt.k(v)}`} />
-            <Tooltip contentStyle={{background:"#0f172a",border:"1px solid #1e293b",borderRadius:"10px",fontSize:"11px"}}
-              formatter={(val,name)=>name==="Revenue Neto"?[fmt.usd(val),name]:[val.toLocaleString("es-AR"),name]} />
-            <Legend wrapperStyle={{fontSize:"10px",paddingTop:"8px"}} />
-            <Bar yAxisId="left" dataKey="Streams Orgánicos" stackId="a" fill="#334155" radius={[0,0,0,0]}>
-              {chartData.map((e,i)=><Cell key={i} fill={e.isForecast?"#1e293b":"#334155"} fillOpacity={e.isForecast?0.5:1} />)}
-            </Bar>
-            <Bar yAxisId="left" dataKey="Lift DM" stackId="a" fill="#10b981" radius={[3,3,0,0]}>
-              {chartData.map((e,i)=><Cell key={i} fill={e.isForecast?"#6ee7b7":"#10b981"} fillOpacity={e.isForecast?0.35:1} />)}
-            </Bar>
-            <Line yAxisId="right" type="monotone" dataKey="Revenue Neto" stroke="#a855f7" strokeWidth={2} dot={false} connectNulls />
-          </ComposedChart>
-        </ResponsiveContainer>
-      </div>
-
-      {/* ── Tabla mes × KPI ── */}
-      <div className="bg-slate-900 rounded-xl border border-slate-800 p-4">
-        <p className="text-xs text-slate-500 font-medium mb-3">Detalle por mes — click para ver breakdown por track</p>
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs border-collapse">
-            <thead>
-              <tr className="border-b border-slate-800">
-                <th className="text-left text-slate-500 font-medium pb-2 pr-4 whitespace-nowrap">Mes</th>
-                <th className="text-right text-slate-500 font-medium pb-2 px-3 whitespace-nowrap">Streams</th>
-                <th className="text-right text-slate-500 font-medium pb-2 px-3 whitespace-nowrap">MoM</th>
-                <th className="text-right text-slate-500 font-medium pb-2 px-3 whitespace-nowrap">Tracks DM</th>
-                <th className="text-right text-slate-500 font-medium pb-2 px-3 whitespace-nowrap">Lift DM</th>
-                <th className="text-right text-slate-500 font-medium pb-2 px-3 whitespace-nowrap">Revenue neto</th>
-                <th className="text-right text-slate-500 font-medium pb-2 px-3 whitespace-nowrap">Eficiencia</th>
-                <th className="text-right text-slate-500 font-medium pb-2 px-3 whitespace-nowrap">Gasto DM</th>
-                <th className="text-right text-slate-500 font-medium pb-2 pl-3 whitespace-nowrap">ROI</th>
-              </tr>
-            </thead>
-            <tbody>
-              {months.map((m, idx) => {
-                const isSelected = selectedMonth === m.ym;
-                const delta = mom(months, idx, "streams");
-                return (
-                  <React.Fragment key={m.ym}>
-                    <tr onClick={() => setSelectedMonth(isSelected ? null : m.ym)}
-                      className={`border-b border-slate-800/40 cursor-pointer transition-colors ${isSelected?"bg-slate-800/60":m.isCurrentMonth?"bg-slate-800/20 hover:bg-slate-800/40":"hover:bg-slate-800/30"}`}>
-                      <td className={`py-2.5 pr-4 whitespace-nowrap font-medium ${m.isCurrentMonth?"text-white":"text-slate-300"}`}>
-                        {m.label}
-                        {m.isCurrentMonth && <span className="ml-1.5 text-xs text-emerald-500">▶</span>}
-                      </td>
-                      <td className="py-2.5 px-3 text-right text-white tabular-nums font-semibold">{m.streams.toLocaleString("es-AR")}</td>
-                      <td className="py-2.5 px-3 text-right"><DeltaBadge val={delta} /></td>
-                      <td className="py-2.5 px-3 text-right">
-                        {m.dmCount>0 ? <span className="text-emerald-400 font-bold">{m.dmCount}</span> : <span className="text-slate-700">—</span>}
-                      </td>
-                      <td className="py-2.5 px-3 text-right">
-                        {m.liftPct!=null ? <span className={`font-bold ${m.liftPct>=0?"text-emerald-400":"text-rose-400"}`}>{m.liftPct>=0?"+":""}{m.liftPct}%</span> : <span className="text-slate-700">—</span>}
-                      </td>
-                      <td className="py-2.5 px-3 text-right">
-                        {m.dmCount>0 ? <span className="text-emerald-400 font-semibold">{fmt.usd(m.revenue)}</span> : <span className="text-slate-700">—</span>}
-                      </td>
-                      <td className="py-2.5 px-3 text-right">
-                        {m.dmEfficiency!=null ? <span className="text-cyan-400 text-xs">${m.dmEfficiency}/1K</span> : <span className="text-slate-700">—</span>}
-                      </td>
-                      <td className="py-2.5 px-3 text-right">
-                        {editSpend === m.ym ? (
-                          <input type="number" value={spendInput} autoFocus
-                            onChange={e => setSpendInput(e.target.value)}
-                            onBlur={() => { setDmSpend(p => ({...p,[m.ym]:+spendInput||0})); setEditSpend(null); }}
-                            onKeyDown={e => { if(e.key==="Enter"){ setDmSpend(p=>({...p,[m.ym]:+spendInput||0})); setEditSpend(null); } }}
-                            className="w-20 bg-slate-700 border border-slate-500 rounded px-1.5 py-0.5 text-xs text-white text-right focus:outline-none focus:border-purple-500"
-                            onClick={e => e.stopPropagation()} />
-                        ) : (
-                          <button onClick={e=>{e.stopPropagation();setSpendInput(String(m.spend||""));setEditSpend(m.ym);}}
-                            className={`text-xs rounded px-2 py-0.5 transition-colors ${m.spend>0?"text-amber-400 hover:text-amber-300":"text-slate-600 hover:text-slate-400 border border-dashed border-slate-700 hover:border-slate-500"}`}>
-                            {m.spend>0?fmt.usd(m.spend):"+ Gasto"}
-                          </button>
-                        )}
-                      </td>
-                      <td className="py-2.5 pl-3 text-right">
-                        {m.roi!=null ? <span className={`font-bold ${m.roi>=0?"text-emerald-400":"text-rose-400"}`}>{m.roi>=0?"+":""}{m.roi}%</span> : <span className="text-slate-700">—</span>}
-                      </td>
-                    </tr>
-                    {/* ── Drill-down row ── */}
-                    {isSelected && (
-                      <tr className="bg-slate-800/40">
-                        <td colSpan={9} className="px-4 py-3">
-                          <p className="text-xs text-slate-400 font-semibold mb-2">Top tracks — {m.label}</p>
-                          <div className="grid grid-cols-5 gap-2">
-                            {m.top5.map(t => (
-                              <div key={t.id} className={`rounded-lg p-2.5 border ${t.inDM?"bg-emerald-500/5 border-emerald-500/20":"bg-slate-800 border-slate-700"}`}>
-                                <p className="text-xs text-slate-300 font-medium truncate">{t.name}</p>
-                                <p className="text-sm font-bold text-white mt-0.5">{t.streams.toLocaleString("es-AR")}</p>
-                                {t.inDM && t.inc > 0 && (
-                                  <p className="text-xs text-emerald-400 mt-0.5">+{t.inc.toLocaleString("es-AR")} DM · {fmt.usd(t.rev)}</p>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                          {m.isCurrentMonth && m.projStreams && (
-                            <p className="text-xs text-slate-500 mt-2.5">
-                              📊 Proyección mes completo (día {m.dayOfMonth}/{m.daysInMonth}):
-                              <span className="text-white font-semibold ml-1">{m.projStreams.toLocaleString("es-AR")} streams</span>
-                              {m.projRevenue && <span className="text-emerald-400 font-semibold ml-2">/ {fmt.usd(m.projRevenue)}</span>}
-                            </p>
-                          )}
-                        </td>
-                      </tr>
-                    )}
-                  </React.Fragment>
-                );
-              })}
-            </tbody>
-            <tfoot>
-              <tr className="border-t-2 border-slate-700">
-                <td className="pt-2.5 pr-4 text-slate-400 font-semibold">TOTAL</td>
-                <td className="pt-2.5 px-3 text-right text-white font-bold tabular-nums">{months.reduce((s,m)=>s+m.streams,0).toLocaleString("es-AR")}</td>
-                <td className="pt-2.5 px-3 text-right text-slate-600">—</td>
-                <td className="pt-2.5 px-3 text-right text-slate-600">—</td>
-                <td className="pt-2.5 px-3 text-right text-slate-600">—</td>
-                <td className="pt-2.5 px-3 text-right text-emerald-400 font-bold">{fmt.usd(months.reduce((s,m)=>s+m.revenue,0))}</td>
-                <td className="pt-2.5 px-3 text-right text-slate-600">—</td>
-                <td className="pt-2.5 px-3 text-right text-amber-400 font-semibold">{fmt.usd(months.reduce((s,m)=>s+m.spend,0))}</td>
-                <td className="pt-2.5 pl-3 text-right text-slate-600">—</td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-      </div>
-    </div>
+      })}
+      <path d={revPath} fill="none" stroke={revColor} strokeWidth="2" />
+      {revPts.map((p, i) => <circle key={i} cx={p[0]} cy={p[1]} r="3" fill={revColor} />)}
+      {data.map((d, i) => (
+        <text key={i} x={i * bw + bw / 2} y={height + 16} textAnchor="middle" fontSize="9" fontFamily="IBM Plex Mono, monospace" fill="currentColor" opacity="0.55">{d.month}</text>
+      ))}
+      {[0, 0.5, 1].map((t, i) => (
+        <text key={i} x={WIDTH + 10} y={height - t * height + 3} fontSize="9" fontFamily="IBM Plex Mono, monospace" fill={revColor} opacity="0.8">${Math.round(maxRev * t)}</text>
+      ))}
+    </svg>
   );
-};
+}
 
-// ════════════════════════════════════════════════════════════════
-//  DECAY INTELLIGENCE TAB
-// ════════════════════════════════════════════════════════════════
-const DecayTab = ({ track, catalog }) => {
-  const [viewMode, setViewMode] = useState("daily");
-  const [showContext, setShowContext] = useState(false);
-  const [showAlgo, setShowAlgo] = useState(true);
-  const { metrics, history, dmStart, dmEnd, dmPauseIdx, dmResumeIdx } = track;
-
-  // All hooks must be called unconditionally (Rules of Hooks)
-  const withForecast = useMemo(()=> history?.length ? appendForecast(history) : [], [history]);
-  const lastActualLabel = history?.at(-1)?.label;
-  const lastActualIdx = (history?.length ?? 1) - 1;
-
-  const allChartData = useMemo(()=>{
-    if (!withForecast.length) return [];
-    const popLookup = track.popMetrics?.lookup ?? {};
-    // Filtrar días con streams === 0 al inicio (track no existía)
-    let startAt = 0;
-    for (let i = 0; i < withForecast.length; i++) {
-      if (!withForecast[i].isForecast && (withForecast[i].streams ?? 0) > 0) { startAt = i; break; }
-    }
-    const trimmed = withForecast.slice(startAt);
-    const base = trimmed.map((d,i)=>({
-      label:d.label,
-      "Streams Reales":       d.isForecast ? null : d.streams,
-      "Streams Algorítmicos": !d.isForecast ? (d.programmedStreams ?? 0) : null,
-      "Popularity": (!d.isForecast && d.date && popLookup[d.date] !== undefined) ? popLookup[d.date] : null,
-    }));
-    if (viewMode==="weekly") {
-      const weeks=[];
-      for(let i=0;i<base.length;i+=7){
-        const chunk=base.slice(i,i+7);
-        const agg=k=>{ const vals=chunk.map(d=>d[k]).filter(v=>v!=null); return vals.length?Math.round(vals.reduce((s,v)=>s+v,0)/vals.length):null; };
-        weeks.push({label:chunk[0]?.label,
-          "Streams Reales":agg("Streams Reales"),
-          "Streams Algorítmicos":agg("Streams Algorítmicos"),
-          "Popularity":agg("Popularity"),
-        });
-      }
-      return weeks;
-    }
-    return base;
-  },[withForecast,viewMode,lastActualIdx,track,showAlgo]);
-
-  const totalLen = allChartData.length;
-  const chartData = useMemo(()=>
-    allChartData
-  ,[allChartData]);
-
-  // ── Dynamic insight computation (3-axis: lifecycle · window score · DM outcome intel) ──
-  const insight = useMemo(() => {
-    if (!metrics || !history?.length) return null;
-    const m   = metrics;
-    const dm  = track.dm ?? {};
-    const activeCatalog = (catalog ?? []).filter(t => t.status === "active" && t.dm?.liftPct != null);
-    const avgLift   = activeCatalog.length ? activeCatalog.reduce((s,t)=>s+t.dm.liftPct,0)/activeCatalog.length : 0;
-    const avgK      = (catalog ?? []).filter(t=>t.metrics?.structK).reduce((s,t,_,a)=>s+t.metrics.structK/a.length,0);
-
-    // ── 1. ORGANIC series (total − algo) ──────────────────────────
-    const orgHistory = history.filter(d => !d.isForecast).map(d => ({
-      ...d,
-      orgStreams: Math.max(0, d.streams - (d.programmedStreams ?? 0)),
-    }));
-
-    // Per-week buckets (last 8 weeks)
-    const weeks = [];
-    const actual = orgHistory.filter(d => d.streams > 0);
-    for (let w = 7; w >= 0; w--) {
-      const slice = actual.slice(-(w+1)*7, w > 0 ? -w*7 : undefined);
-      if (!slice.length) continue;
-      const totStr = slice.reduce((s,d)=>s+d.streams,0);
-      const totOrg = slice.reduce((s,d)=>s+d.orgStreams,0);
-      const totAlg = slice.reduce((s,d)=>s+(d.programmedStreams??0),0);
-      // Date label: "dd/mm" of first day of the week
-      const startDate = slice[0]?.date ?? null;
-      const dateLabel = startDate
-        ? startDate.slice(5).replace("-", "/")   // "YYYY-MM-DD" → "MM/DD"
-        : `W-${w}`;
-      weeks.push({
-        label: w === 0 ? "Hoy" : dateLabel,
-        total: Math.round(totStr/slice.length),
-        organic: Math.round(totOrg/slice.length),
-        algo: Math.round(totAlg/slice.length),
-        algoPct: totStr > 0 ? +((totAlg/totStr)*100).toFixed(1) : 0,
-      });
-    }
-
-    // ── 2. ORGANIC-only metrics ───────────────────────────────────
-    const org28 = actual.slice(-28).map(d => d.orgStreams);
-    const org56 = actual.slice(-56, -28).map(d => d.orgStreams);
-    const orgAvg28 = org28.length ? org28.reduce((s,v)=>s+v,0)/org28.length : 0;
-    const orgAvg56 = org56.length ? org56.reduce((s,v)=>s+v,0)/org56.length : orgAvg28;
-    const orgMom   = orgAvg56 > 0 ? +((orgAvg28/orgAvg56-1)*100).toFixed(1) : 0;
-
-    // Organic decay rate (28d log-linear)
-    const orgLogVals = org28.map(v => Math.log(Math.max(v,1)));
-    const on = org28.length, oMx = (on-1)/2;
-    const oMl = orgLogVals.reduce((s,v)=>s+v,0)/on;
-    const oNum = orgLogVals.reduce((s,v,i)=>s+(i-oMx)*(v-oMl),0);
-    const oDen = org28.reduce((s,_,i)=>s+(i-oMx)**2,0);
-    const orgK  = Math.max(0, -(oDen>0?oNum/oDen:0));
-
-    // ── 3. ALGO RATIO TREND (week-over-week) ──────────────────────
-    const algoRatioTrend = weeks.length >= 2
-      ? +(weeks.at(-1).algoPct - weeks.at(-2).algoPct).toFixed(1)
-      : 0;
-    const algoRatioNow = weeks.at(-1)?.algoPct ?? 0;
-
-    // ── 4. ALGO→ORGANIC CONVERSION (lag-1 correlation) ────────────
-    // Does a day with high algo streams predict higher organic next day?
-    let algoOrgCorr = null;
-    if (actual.length >= 14) {
-      const n = actual.length - 1;
-      const algos = actual.slice(0, n).map(d => d.programmedStreams ?? 0);
-      const orgsNext = actual.slice(1).map(d => d.orgStreams);
-      const ma = algos.reduce((s,v)=>s+v,0)/n;
-      const mo = orgsNext.reduce((s,v)=>s+v,0)/n;
-      const num = algos.reduce((s,v,i)=>s+(v-ma)*(orgsNext[i]-mo),0);
-      const da  = Math.sqrt(algos.reduce((s,v)=>s+(v-ma)**2,0));
-      const do_ = Math.sqrt(orgsNext.reduce((s,v)=>s+(v-mo)**2,0));
-      algoOrgCorr = (da>0 && do_>0) ? +(num/(da*do_)).toFixed(2) : null;
-    }
-
-    // ── 5. DM RAMP (days to peak algo since dmStart) ───────────────
-    let algoRamp = null;
-    if (dmStart != null) {
-      const dmSlice = history.slice(dmStart, dmEnd ?? history.length);
-      if (dmSlice.length > 0) {
-        const peakAlgo = Math.max(...dmSlice.map(d=>d.programmedStreams??0));
-        const peakDay  = dmSlice.findIndex(d=>(d.programmedStreams??0)===peakAlgo);
-        algoRamp = peakDay >= 0 ? peakDay + 1 : null;
-      }
-    }
-
-    // ── 6. ORGANIC INDEPENDENCE SCORE (0–100) ─────────────────────
-    // High = organic is growing / stable on its own; Low = dependent on algo
-    let orgScore = 50;
-    if (orgMom > 5)         orgScore += 25;
-    else if (orgMom > 0)    orgScore += 12;
-    else if (orgMom > -10)  orgScore -= 5;
-    else                    orgScore -= 20;
-    if (algoRatioNow < 20)  orgScore += 15;
-    else if (algoRatioNow < 40) orgScore += 5;
-    else if (algoRatioNow > 60) orgScore -= 15;
-    if (algoRatioTrend < -3) orgScore += 10; // algo decreasing = organic taking over
-    else if (algoRatioTrend > 3) orgScore -= 10;
-    if (algoOrgCorr !== null && algoOrgCorr > 0.4) orgScore += 10; // good conversion
-    orgScore = Math.min(100, Math.max(0, Math.round(orgScore)));
-
-    // ── 7. SIGNAL ─────────────────────────────────────────────────
-    const lifecycle = detectLifecycle(track);
-    let signalColor = "slate", signalTitle = "", signalText = "";
-    if (track.status === "active") {
-      if (dm.liftPct > 15 && orgMom > -5) {
-        signalColor = "emerald"; signalTitle = "✅ DM activo — orgánico resistente";
-        signalText  = `Lift DM: +${dm.liftPct}% · orgánico ${orgMom >= 0 ? `creciendo +${orgMom}%` : `cayendo ${orgMom}%`} (4 sem). ${algoOrgCorr !== null && algoOrgCorr > 0.4 ? "Alta conversión algorítmica: el boost genera oyentes que vuelven." : ""}`;
-      } else if (dm.liftPct > 0 && algoRatioNow > 60) {
-        signalColor = "amber"; signalTitle = "⚠️ Dependencia algorítmica alta";
-        signalText  = `${algoRatioNow.toFixed(1)}% del volumen es algorítmico. Lift de +${dm.liftPct}% pero riesgo de caída al salir de DM. Orgánico: ${orgMom > 0 ? `+${orgMom}%` : `${orgMom}%`} (4 sem).`;
-      } else if (dm.liftPct <= 0) {
-        signalColor = "rose"; signalTitle = "🔴 Sin lift — revisar campaña";
-        signalText  = `Streams no superan el baseline orgánico. Algo: ${algoRatioNow.toFixed(1)}% del total. El boost algorítmico no está generando incremento neto.`;
-      } else {
-        signalColor = "amber"; signalTitle = "⚠️ Lift moderado";
-        signalText  = `+${dm.liftPct}% lift · ${algoRatioNow.toFixed(1)}% algorítmico · orgánico ${orgMom >= 0 ? `+${orgMom}%` : `${orgMom}%`} (4 sem). Por debajo del promedio del catálogo (${avgLift.toFixed(1)}%).`;
-      }
-    } else if (track.status === "candidate") {
-      signalColor = orgMom > 0 ? "purple" : orgMom > -10 ? "amber" : "rose";
-      signalTitle = orgMom > 0 ? "🟣 Orgánico creciendo — ventana activa" : orgMom > -10 ? "⚠️ Momentum neutro" : "🔴 Orgánico en caída";
-      signalText  = `Orgánico: ${orgMom >= 0 ? "+" : ""}${orgMom}% (4 sem) · k orgánico: ${orgK.toFixed(4)} · independencia: ${orgScore}/100. ${orgMom > 0 ? "Momento óptimo para activar DM." : "Esperar estabilización antes de invertir."}`;
-    } else {
-      signalColor = orgMom > 5 ? "emerald" : orgMom > -10 ? "slate" : "rose";
-      signalTitle = orgMom > 5 ? "📈 Orgánico en crecimiento" : orgMom > -10 ? "📊 Decaimiento estable" : "🔴 Decaimiento acelerado";
-      signalText  = `Orgánico: ${orgMom >= 0 ? "+" : ""}${orgMom}% · k orgánico: ${orgK.toFixed(4)} · ratio algo actual: ${algoRatioNow.toFixed(1)}%. k estructural total: ${fmt.dec4(m.structK)}.`;
-    }
-
-    // ── 8. ACTIONS (algo-aware) ────────────────────────────────────
-    const actions = [];
-    // Primary action
-    if (track.status === "active") {
-      if (dm.liftPct > 15 && algoRatioNow < 55)
-        actions.push({ color:"emerald", icon:"✅", title:"Mantener campaña", desc:`Lift +${dm.liftPct}% con bajo riesgo de dependencia (${algoRatioNow.toFixed(0)}% algo). Revenue neto: ${fmt.usd(dm.net)}.` });
-      else if (algoRatioNow > 65)
-        actions.push({ color:"amber", icon:"⚠️", title:"Monitorear salida DM", desc:`${algoRatioNow.toFixed(0)}% algorítmico — preparar estrategia de transición. Orgánico: ${orgMom >= 0 ? "+" : ""}${orgMom}% (4 sem).` });
-      else if (dm.liftPct <= 5)
-        actions.push({ color:"rose", icon:"⏸", title:"Evaluar pausa DM", desc:`Lift por debajo del umbral. Orgánico ${orgMom >= 0 ? "+" : ""}${orgMom}% — ${orgMom > 0 ? "el track crece solo, DM no agrega valor" : "revisar targeting"}.` });
-      else
-        actions.push({ color:"amber", icon:"📊", title:"Revisar mix DM", desc:`Lift moderado +${dm.liftPct}%. Considerar ajustar peso editorial/algorítmico.` });
-    } else if (track.status === "candidate") {
-      actions.push({ color: orgMom > 0 ? "purple" : "amber", icon: orgMom > 0 ? "🚀" : "⏳", title: orgMom > 0 ? "Activar DM" : "Esperar momentum", desc: orgMom > 0 ? `Orgánico +${orgMom}% — ventana activa. Score independencia: ${orgScore}/100.` : `Orgánico ${orgMom}% — esperar estabilización antes de invertir en DM.` });
-    } else {
-      actions.push({ color: orgScore >= 60 ? "emerald" : "slate", icon: orgScore >= 60 ? "💡" : "👁", title: orgScore >= 60 ? "Candidato potencial" : "Monitorear", desc: orgScore >= 60 ? `Score orgánico ${orgScore}/100 — perfil favorable para DM.` : `Score orgánico ${orgScore}/100 — observar evolución antes de activar.` });
-    }
-    // Organic decay vs catalog
-    if (orgK > avgK * 1.4)
-      actions.push({ color:"rose", icon:"⚡", title:"Orgánico decayendo rápido", desc:`k orgánico ${orgK.toFixed(4)} — ${((orgK/avgK-1)*100).toFixed(0)}% sobre el promedio del catálogo. Ventana DM corta.` });
-    else if (orgK < avgK * 0.6)
-      actions.push({ color:"emerald", icon:"🏅", title:"Orgánico longevo", desc:`k orgánico ${orgK.toFixed(4)} — decae ${((1-orgK/avgK)*100).toFixed(0)}% más lento que el catálogo.` });
-    else
-      actions.push({ color:"amber", icon:"📉", title:"Decay orgánico normal", desc:`k org ${orgK.toFixed(4)} · k total ${fmt.dec4(m.structK)} · vida media: ${m.halfLife < 999 ? m.halfLife+"w" : "N/A"}.` });
-    // Algo conversion quality
-    if (algoOrgCorr !== null) {
-      if (algoOrgCorr > 0.45)
-        actions.push({ color:"emerald", icon:"🔁", title:"Conversión algo alta", desc:`Correlación algo→orgánico: ${algoOrgCorr}. El boost algorítmico genera oyentes que vuelven.` });
-      else if (algoOrgCorr < 0.15)
-        actions.push({ color:"rose", icon:"💨", title:"Streams de paso", desc:`Correlación algo→orgánico: ${algoOrgCorr}. El algoritmo no convierte — streams sin fidelización.` });
-    }
-
-    // ── 9. DM SCORE (0–100): composite receptividad algorítmica ──
-    // Algo component (0-35): ¿qué tanto está boosteando Spotify ahora?
-    const algoComp = Math.min(35, Math.round(algoRatioNow * 35 / 70));
-    // Org component (0-25): momentum orgánico = base sostenible para el DM
-    const orgComp  = orgMom > 10 ? 25 : orgMom > 0 ? 18 : orgMom > -10 ? 10 : 3;
-    // DM Performance component (0-30): lift actual si está activo
-    let dmPerf = 15; // neutral para tracks sin DM
-    if (track.status === "active" && dm.liftPct != null)
-      dmPerf = dm.liftPct > 30 ? 30 : dm.liftPct > 15 ? 22 : dm.liftPct > 5 ? 14 : 5;
-    else if (track.status === "completed" && dm.liftPct != null)
-      dmPerf = Math.min(30, Math.max(0, Math.round(dm.liftPct * 0.8)));
-    // Independence component (0-10): orgánico independiente = DM más sostenible
-    const indComp  = Math.round(orgScore / 10);
-    const dmScore  = Math.min(100, algoComp + orgComp + dmPerf + indComp);
-    const dmScoreBreakdown = { algoComp, orgComp, dmPerf, indComp };
-
-    return { signalColor, signalTitle, signalText, actions, lifecycle, orgScore, orgMom, orgK, algoRatioNow, algoRatioTrend, algoOrgCorr, algoRamp, weeks, avgLift, avgK, dmScore, dmScoreBreakdown };
-  }, [track, catalog, metrics, history, dmStart, dmEnd]);
-
-  const similarPattern = useMemo(() => {
-    const similar = findSimilarTracks(track, catalog ?? [], 6);
-    const withDM   = similar.filter(t => t.dmStart != null && t.dm?.liftPct != null);
-    const effective = withDM.filter(t => t.dm.liftPct > 10);
-    const avgLift   = withDM.length
-      ? +(withDM.reduce((s, t) => s + t.dm.liftPct, 0) / withDM.length).toFixed(1)
-      : null;
-    const successRate = withDM.length ? effective.length / withDM.length : null;
-    // ── Activar DM ──
-    let actColor = "slate", actText = "Sin suficientes tracks similares con historial DM.";
-    if (successRate !== null) {
-      if (successRate >= 0.65)      { actColor = "emerald"; actText = `${effective.length} de ${withDM.length} tracks similares con DM generaron lift >10% — perfil con buena respuesta histórica.`; }
-      else if (successRate >= 0.35) { actColor = "amber";   actText = `${effective.length} de ${withDM.length} tracks similares respondieron bien al DM — resultado mixto en este perfil.`; }
-      else                          { actColor = "rose";    actText = `Solo ${effective.length} de ${withDM.length} tracks similares respondieron al DM — este perfil muestra baja receptividad histórica.`; }
-    }
-    // ── Cuánto invertir ──
-    const estInc   = avgLift && metrics?.avgStreams ? Math.round(metrics.avgStreams * (avgLift / 100)) : null;
-    const estGross = estInc ? +(estInc * (track.royalty ?? 0.004) * 30).toFixed(0) : null;
-    let invColor = "slate", invText = "No hay base suficiente para estimar inversión óptima.";
-    if (avgLift !== null) {
-      invColor = avgLift > 15 ? "emerald" : avgLift > 5 ? "amber" : "rose";
-      invText  = `Tracks similares tuvieron lift promedio de +${avgLift}%. Estimado: +${estInc?.toLocaleString("es-AR") ?? "–"} streams/día → ~$${estGross?.toLocaleString("en-US") ?? "–"} gross/mes.`;
-    }
-    // ── Cuándo pausar ──
-    const poorDM = withDM.filter(t => t.dm.liftPct <= 5);
-    const avgPoorK = poorDM.length
-      ? +(poorDM.reduce((s, t) => s + (t.metrics?.structK ?? 0), 0) / poorDM.length).toFixed(4)
-      : null;
-    let pauseColor = "slate", pauseText = "Sin datos de pausa en tracks similares.";
-    if (avgPoorK !== null && metrics) {
-      if (metrics.structK >= avgPoorK * 0.9) {
-        pauseColor = "rose";
-        pauseText = `Tracks similares sin lift DM tenían k≈${avgPoorK} — este track ya está en zona de baja efectividad. Evaluar pausa.`;
-      } else {
-        pauseColor = "emerald";
-        pauseText  = `Tracks similares sin lift DM tenían k≈${avgPoorK}. Este track (k=${fmt.dec4(metrics.structK)}) aún está por debajo de ese umbral — margen activo.`;
-      }
-    }
-    return { similar: similar.slice(0, 4), withDM, avgLift, successRate, actColor, actText, invColor, invText, pauseColor, pauseText };
-  }, [track, catalog, metrics]);
-
-  // Guard AFTER all hooks — safe to return early now
-  if (!history?.length || !metrics) {
-    return (
-      <div className="flex items-center justify-center h-full text-slate-500 text-sm">
-        Sin datos disponibles para este track
-      </div>
-    );
-  }
-
-  const kC=k=>k>0.03?"rose":k>0.015?"amber":"emerald";
-  const hlC=h=>h<8?"rose":h>30?"emerald":"amber";
-  const popC=p=>p>=60?"emerald":p>=35?"amber":"rose";
-  const pop = track.popMetrics;
-  const kpis=[
-    {label:"Structural k",value:metrics?.structK ? fmt.dec4(metrics.structK) : "—",sub:"Factor genético de decaimiento",color:metrics?.structK ? kC(metrics.structK) : "slate"},
-    {label:"Recent k",value:metrics?.recentK ? fmt.dec4(metrics.recentK) : "—",sub:"Tendencia últimas 4 semanas",color:metrics?.recentK ? kC(metrics.recentK) : "slate"},
-    {label:"Half-Life",value:metrics?.halfLife && metrics.halfLife < 999 ? `${metrics.halfLife}w` : "N/A",sub:"Semanas para perder 50% vol.",color:metrics?.halfLife && metrics.halfLife < 999 ? hlC(metrics.halfLife) : "slate"},
-    {label:"Organic Floor",value:`${metrics?.organicFloor}%`,sub:"Del peak histórico",color:(metrics?.organicFloor??0)>12?"emerald":"rose"},
-    {label:"Momentum 4W",value:fmt.pct(metrics?.mom4w??0),sub:"vs 28 días previos",color:(metrics?.mom4w??0)>0?"emerald":"rose"},
-    {label:"Peak Streams",value:fmt.k(metrics?.peak??0),sub:"Máximo histórico",color:"slate"},
-    ...(pop ? [{
-      label:"Popularity",
-      value:`${pop.current}/100`,
-      sub:`Tendencia ${pop.trend>0?"+":""}${pop.trend} vs inicio período`,
-      color:popC(pop.current),
-    }] : []),
-  ];
-  const dmLabel    = dmStart != null ? allChartData[dmStart]?.label : null;
-  const dmEndLabel = dmEnd   != null ? allChartData[dmEnd]?.label   : null;
-  // Pause/Resume labels for multi-period DM (e.g. En Llamas)
-  const dmPauseLabel  = dmPauseIdx  != null ? history[dmPauseIdx]?.label  ?? null : null;
-  const dmResumeLabel = dmResumeIdx != null ? history[dmResumeIdx]?.label ?? null : null;
-  const forecastStartLabel = lastActualLabel;
-  const forecastEndLabel = allChartData.at(-1)?.label;
+function Sparkline({ data = [], color = "currentColor" }) {
+  const WIDTH = 80; const HEIGHT = 20;
+  if (!data || data.length < 2) return <div style={{ width: WIDTH, height: HEIGHT }} />;
+  const max = Math.max(...data, 1);
+  const pts = data.map((v, i) => [(i / (data.length - 1)) * WIDTH, HEIGHT - (v / max) * HEIGHT]);
+  const path = pts.map((p, i) => `${i === 0 ? "M" : "L"}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(" ");
   return (
-    <div className="p-5 space-y-4">
-      <div className="bg-slate-900 rounded-xl border border-slate-800 p-5">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h3 className="text-sm font-semibold text-slate-200">Decay Intelligence Chart — {track.name}</h3>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Streams reales + algorítmicos · Datos desde primer día con actividad
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            {dmStart!=null&&(
-              <div className="flex items-center gap-1.5 bg-purple-500/10 border border-purple-500/20 rounded-lg px-3 py-1">
-                <Zap size={11} className="text-purple-400" />
-                <span className="text-xs text-purple-300 font-medium">
-                  DM desde {dmStart===0?"antes del dataset":history[dmStart]?.date??dmStart}
-                  {dmPauseIdx!=null&&dmResumeIdx!=null&&(
-                    <span className="text-amber-400 ml-1">· Pausa {history[dmPauseIdx]?.date??""} → Retoma {history[dmResumeIdx]?.date??""}</span>
-                  )}
-                </span>
-              </div>
-            )}
-            <button onClick={()=>setShowAlgo(v=>!v)}
-              className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors ${showAlgo?"bg-orange-500/15 border-orange-500/30 text-orange-300":"bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200"}`}>
-              <span className="w-2 h-2 rounded-full inline-block" style={{background:"#f97316"}} />
-              Algorítmico
-            </button>
-            <div className="flex bg-slate-800 rounded-lg p-0.5">
-              {["daily","weekly"].map(v=>(
-                <button key={v} onClick={()=>setViewMode(v)}
-                  className={`text-xs px-3 py-1.5 rounded-md capitalize transition-colors ${viewMode===v?"bg-slate-600 text-white":"text-slate-400 hover:text-slate-200"}`}>{v==="daily"?"Diario":"Semanal"}</button>
-              ))}
-            </div>
-          </div>
-        </div>
-        <ResponsiveContainer width="100%" height={320}>
-          <ComposedChart data={chartData}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-            <XAxis dataKey="label" tick={{fontSize:9,fill:"#64748b"}} axisLine={false} tickLine={false} interval={viewMode==="daily"?Math.floor(chartData.length/8):1} />
-            <YAxis tickFormatter={fmt.k} tick={{fontSize:9,fill:"#64748b"}} axisLine={false} tickLine={false} width={48} />
-            <Tooltip content={<DecayTooltip />} />
-            <Legend wrapperStyle={{fontSize:"11px",paddingTop:"8px"}} />
-            <Line dataKey="Streams Algorítmicos" stroke="#f97316" strokeWidth={showAlgo?1.5:0} dot={false} connectNulls={false} strokeOpacity={showAlgo?0.85:0} legendType={showAlgo?"line":"none"} />
-            <Line dataKey="Streams Reales" stroke="#10b981" strokeWidth={2.5} dot={false} connectNulls={false} activeDot={{r:4,fill:"#10b981",stroke:"#0f172a",strokeWidth:2}} />
-            {dmLabel&&<ReferenceLine x={dmLabel} stroke="#a855f7" strokeWidth={1} strokeDasharray="4 4" label={{value:"DM ▶",fontSize:9,fill:"#a855f7",position:"top"}} />}
-            {dmPauseLabel&&dmResumeLabel&&<ReferenceArea x1={dmPauseLabel} x2={dmResumeLabel} fill="#f59e0b" fillOpacity={0.06} />}
-            {dmPauseLabel&&<ReferenceLine x={dmPauseLabel} stroke="#f59e0b" strokeWidth={1} strokeDasharray="4 4" label={{value:"⏸ Pausa",fontSize:9,fill:"#f59e0b",position:"top"}} />}
-            {dmResumeLabel&&<ReferenceLine x={dmResumeLabel} stroke="#22d3ee" strokeWidth={1} strokeDasharray="4 4" label={{value:"▶ Retoma",fontSize:9,fill:"#22d3ee",position:"top"}} />}
-          </ComposedChart>
-        </ResponsiveContainer>
-        {pop&&(
-          <div className="mt-2">
-            <div className="flex items-center gap-2 mb-1 px-1">
-              <span className="w-3 h-0.5 bg-amber-400 inline-block rounded"></span>
-              <span className="text-xs text-amber-400 font-medium">Popularity Index</span>
-              <span className="text-xs text-slate-600 ml-auto">0 – 100</span>
-            </div>
-            <ResponsiveContainer width="100%" height={80}>
-              <LineChart data={chartData} margin={{top:4,right:8,left:48,bottom:0}}>
-                <XAxis dataKey="label" hide />
-                <YAxis domain={[0,100]} tick={{fontSize:8,fill:"#92400e"}} axisLine={false} tickLine={false} width={48} tickFormatter={v=>`${v}`} ticks={[0,25,50,75,100]} />
-                <Tooltip content={({active,payload,label})=>{
-                  if(!active||!payload?.length) return null;
-                  const v=payload.find(p=>p.dataKey==="Popularity")?.value;
-                  if(v==null) return null;
-                  return <div className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-xs"><span className="text-slate-400">{label} </span><span className="text-amber-400 font-bold">{v}/100</span></div>;
-                }} />
-                {dmLabel&&<ReferenceLine x={dmLabel} stroke="#a855f7" strokeWidth={1} strokeDasharray="4 4" />}
-                {dmPauseLabel&&<ReferenceLine x={dmPauseLabel} stroke="#f59e0b" strokeWidth={1} strokeDasharray="3 3" />}
-                {dmResumeLabel&&<ReferenceLine x={dmResumeLabel} stroke="#22d3ee" strokeWidth={1} strokeDasharray="3 3" />}
-                {lastActualLabel&&<ReferenceLine x={lastActualLabel} stroke="#475569" strokeWidth={1} strokeDasharray="3 3" />}
-                <Line dataKey="Popularity" stroke="#f59e0b" strokeWidth={2} dot={false} connectNulls={true} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        )}
-      </div>
-      {insight && (
-      <div className="bg-slate-900 rounded-xl border border-slate-800 p-5 flex flex-col gap-4">
-
-        {/* ── Header: título + lifecycle badge + DM Score ── */}
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2 flex-wrap">
-            <Brain size={15} className="text-purple-400 shrink-0" />
-            <h3 className="text-sm font-semibold text-slate-200">AI Intel</h3>
-            <span className={`text-xs px-2 py-0.5 rounded-full font-semibold border whitespace-nowrap
-              ${insight.lifecycle.color==="cyan"   ?"bg-cyan-500/15 text-cyan-300 border-cyan-500/30":
-                insight.lifecycle.color==="yellow" ?"bg-yellow-500/15 text-yellow-300 border-yellow-500/30":
-                insight.lifecycle.color==="amber"  ?"bg-amber-500/15 text-amber-300 border-amber-500/30":
-                insight.lifecycle.color==="indigo" ?"bg-indigo-500/15 text-indigo-300 border-indigo-500/30":
-                "bg-slate-700/60 text-slate-400 border-slate-600"}`}>
-              {insight.lifecycle.label}
-            </span>
-          </div>
-          {/* DM Score gauge */}
-          <div className="flex items-center gap-2.5 shrink-0">
-            <div className="text-right">
-              <p className="text-[10px] text-slate-500 font-semibold uppercase tracking-wide">DM Score</p>
-              <p className={`text-xs font-bold leading-tight ${insight.dmScore>=70?"text-emerald-400":insight.dmScore>=45?"text-amber-400":"text-rose-400"}`}>
-                {insight.dmScore >= 70 ? "Alta receptividad" : insight.dmScore >= 45 ? "Moderada" : "Baja"}
-              </p>
-            </div>
-            <div className="relative w-14 h-14 shrink-0">
-              <svg viewBox="0 0 56 56" className="w-14 h-14 -rotate-90">
-                <circle cx="28" cy="28" r="23" fill="none" stroke="#1e293b" strokeWidth="5"/>
-                <circle cx="28" cy="28" r="23" fill="none"
-                  stroke={insight.dmScore>=70?"#10b981":insight.dmScore>=45?"#f59e0b":"#f43f5e"}
-                  strokeWidth="5"
-                  strokeDasharray={`${(insight.dmScore/100)*144.5} 144.5`}
-                  strokeLinecap="round"/>
-              </svg>
-              <span className={`absolute inset-0 flex items-center justify-center text-sm font-black ${insight.dmScore>=70?"text-emerald-400":insight.dmScore>=45?"text-amber-400":"text-rose-400"}`}>
-                {insight.dmScore}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* ── Signal banner (estado actual) ── */}
-        <div className={`rounded-xl px-4 py-3 border-l-4 bg-slate-800/40
-          ${insight.signalColor==="emerald"?"border-emerald-500":insight.signalColor==="amber"?"border-amber-500":
-            insight.signalColor==="rose"?"border-rose-500":insight.signalColor==="purple"?"border-purple-500":"border-slate-600"}`}>
-          <p className={`text-xs font-bold mb-1 ${insight.signalColor==="emerald"?"text-emerald-400":insight.signalColor==="amber"?"text-amber-400":insight.signalColor==="rose"?"text-rose-400":insight.signalColor==="purple"?"text-purple-400":"text-slate-400"}`}>
-            {insight.signalTitle}
-          </p>
-          <p className="text-xs text-slate-300 leading-relaxed">{insight.signalText}</p>
-        </div>
-
-        {/* ══════════════════════════════════════════
-            SECCIÓN 1 — ESTADO ACTUAL
-        ══════════════════════════════════════════ */}
-        <div>
-          <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-            <Activity size={10} className="text-slate-500" />
-            Estado Actual
-          </p>
-          <div className="grid grid-cols-4 gap-2">
-            {[
-              {
-                label: "Algo ahora",
-                value: `${insight.algoRatioNow.toFixed(1)}%`,
-                sub: insight.algoRatioTrend !== 0
-                  ? `${insight.algoRatioTrend > 0 ? "↑ +" : "↓ "}${insight.algoRatioTrend}pp/sem`
-                  : "→ estable",
-                color: insight.algoRatioNow > 50 ? "orange" : insight.algoRatioNow > 20 ? "amber" : "slate",
-              },
-              {
-                label: "Org momentum",
-                value: `${insight.orgMom > 0 ? "+" : ""}${insight.orgMom}%`,
-                sub: "últimas 4 sem",
-                color: insight.orgMom > 0 ? "emerald" : insight.orgMom > -10 ? "amber" : "rose",
-              },
-              {
-                label: "Independencia",
-                value: `${insight.orgScore}/100`,
-                sub: insight.orgScore >= 65 ? "Independiente" : insight.orgScore >= 40 ? "Mixto" : "Dependiente",
-                color: insight.orgScore >= 65 ? "emerald" : insight.orgScore >= 40 ? "amber" : "rose",
-              },
-              {
-                label: "Conversión algo",
-                value: insight.algoOrgCorr !== null ? `r = ${insight.algoOrgCorr}` : "N/A",
-                sub: insight.algoOrgCorr !== null
-                  ? (insight.algoOrgCorr > 0.4 ? "Alta" : insight.algoOrgCorr > 0.15 ? "Media" : "Baja")
-                  : "sin datos",
-                color: insight.algoOrgCorr !== null
-                  ? (insight.algoOrgCorr > 0.4 ? "emerald" : insight.algoOrgCorr > 0.15 ? "amber" : "rose")
-                  : "slate",
-              },
-            ].map(({label, value, sub, color}) => (
-              <div key={label} className={`rounded-lg p-2.5 border
-                ${color==="emerald"?"bg-emerald-500/5 border-emerald-500/20":
-                  color==="orange"?"bg-orange-500/5 border-orange-500/20":
-                  color==="amber"?"bg-amber-500/5 border-amber-500/20":
-                  color==="rose"?"bg-rose-500/5 border-rose-500/20":
-                  "bg-slate-800/40 border-slate-700/50"}`}>
-                <p className="text-[9px] text-slate-500 mb-0.5">{label}</p>
-                <p className={`text-base font-black leading-none
-                  ${color==="emerald"?"text-emerald-400":color==="orange"?"text-orange-400":color==="amber"?"text-amber-400":color==="rose"?"text-rose-400":"text-slate-300"}`}>
-                  {value}
-                </p>
-                <p className="text-[9px] text-slate-600 mt-0.5">{sub}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* ══════════════════════════════════════════
-            SECCIÓN 2 — EVOLUCIÓN ALGORÍTMICA
-        ══════════════════════════════════════════ */}
-        {insight.weeks.length >= 2 && (
-          <div>
-            <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-              <Zap size={10} className="text-orange-400" />
-              Evolución Algorítmica · últimas 8 semanas
-            </p>
-            <div className="bg-slate-800/30 rounded-xl p-3 border border-slate-700/50">
-              {/* Stacked bar chart mejorado */}
-              <div className="flex items-end gap-1.5" style={{height:"108px"}}>
-                {insight.weeks.map((w, i) => {
-                  const maxVal = Math.max(...insight.weeks.map(x => x.total), 1);
-                  const barH   = Math.max(8, Math.round((w.total / maxVal) * 88));
-                  const algoH  = Math.round(barH * (w.algoPct / 100));
-                  const orgH   = barH - algoH;
-                  const isLast = i === insight.weeks.length - 1;
-                  const isHighAlgo = w.algoPct > 40;
-                  return (
-                    <div key={i} className="flex-1 flex flex-col items-center gap-0"
-                      title={`${w.label}: ${fmt.k(w.total)}/día · ${w.algoPct}% algo · ${(100-w.algoPct).toFixed(1)}% org`}>
-                      {/* algo% label encima de la barra */}
-                      <span className={`text-[8px] font-bold leading-none mb-0.5 ${isHighAlgo ? "text-orange-400" : w.algoPct > 15 ? "text-amber-500" : "text-slate-600"}`}>
-                        {w.algoPct > 0 ? `${Math.round(w.algoPct)}%` : ""}
-                      </span>
-                      {/* barra apilada */}
-                      <div className="w-full flex flex-col justify-end rounded-t-sm overflow-hidden" style={{height:`${barH}px`}}>
-                        <div style={{height:`${algoH}px`, background: isLast ? "#f97316" : "#f9731670"}} />
-                        <div style={{height:`${orgH}px`,  background: isLast ? "#10b981" : "#10b98160"}} />
-                      </div>
-                      {/* fecha / "Hoy" */}
-                      <span className={`text-[8px] leading-none mt-1 ${isLast ? "text-slate-200 font-semibold" : "text-slate-600"}`}>
-                        {w.label}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-              {/* Leyenda + resumen */}
-              <div className="flex items-center justify-between mt-3 pt-2.5 border-t border-slate-700/50">
-                <div className="flex items-center gap-3 text-[9px]">
-                  <span className="flex items-center gap-1">
-                    <span className="w-2 h-2 rounded-sm inline-block bg-orange-500"/>
-                    <span className="text-slate-500">Algorítmico</span>
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <span className="w-2 h-2 rounded-sm inline-block bg-emerald-500"/>
-                    <span className="text-slate-500">Orgánico</span>
-                  </span>
-                  <span className="text-slate-600">· barra más clara = semanas anteriores</span>
-                </div>
-                <div className="flex gap-4">
-                  <div className="text-right">
-                    <p className="text-[9px] text-slate-500">Tendencia algo</p>
-                    <p className={`text-xs font-bold ${insight.algoRatioTrend > 2 ? "text-rose-400" : insight.algoRatioTrend < -2 ? "text-emerald-400" : "text-slate-300"}`}>
-                      {insight.algoRatioTrend > 0 ? "↑ +" : insight.algoRatioTrend < 0 ? "↓ " : "→ "}
-                      {insight.algoRatioTrend > 0 ? "" : ""}{insight.algoRatioTrend}pp/sem
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-[9px] text-slate-500">Streams/día hoy</p>
-                    <p className="text-xs font-bold text-slate-300">{fmt.k(insight.weeks.at(-1)?.total ?? 0)}</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* DM Ramp (si está activo) */}
-        {track.status === "active" && insight.algoRamp !== null && (
-          <div className="bg-slate-800/30 rounded-xl p-3 border border-slate-700/50 flex items-center gap-4">
-            <div className="shrink-0 text-center">
-              <p className="text-[9px] text-slate-500 mb-0.5">Días hasta pico algo</p>
-              <p className={`text-2xl font-black ${insight.algoRamp <= 7 ? "text-emerald-400" : insight.algoRamp <= 14 ? "text-amber-400" : "text-rose-400"}`}>
-                {insight.algoRamp}d
-              </p>
-            </div>
-            <div>
-              <p className="text-[10px] font-semibold text-slate-400 flex items-center gap-1 mb-0.5">
-                <Zap size={10} className="text-purple-400" />Activación DM
-              </p>
-              <p className="text-xs text-slate-500 leading-relaxed">
-                {insight.algoRamp <= 7 ? "Activación rápida — Spotify lo boosteó inmediatamente. Buena señal de engagement." :
-                 insight.algoRamp <= 14 ? "Activación normal — el algoritmo tardó ~2 semanas en alcanzar el pico." :
-                 "Activación lenta — puede indicar engagement inicial bajo."}
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* ══════════════════════════════════════════
-            SECCIÓN 3 — RECOMENDACIÓN + RIESGO
-        ══════════════════════════════════════════ */}
-        <div>
-          <div className="grid grid-cols-2 gap-3">
-            {/* Recomendación (acción primaria) */}
-            <div>
-              <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                <Target size={10} className="text-purple-400"/>
-                Recomendación
-              </p>
-              {insight.actions[0] && (
-                <div className={`rounded-xl p-3 border h-full
-                  ${insight.actions[0].color==="emerald"?"bg-emerald-500/8 border-emerald-500/25":
-                    insight.actions[0].color==="rose"?"bg-rose-500/8 border-rose-500/25":
-                    insight.actions[0].color==="amber"?"bg-amber-500/8 border-amber-500/25":
-                    insight.actions[0].color==="purple"?"bg-purple-500/8 border-purple-500/25":
-                    "bg-slate-800/40 border-slate-700"}`}>
-                  <p className={`text-xs font-bold mb-1.5
-                    ${insight.actions[0].color==="emerald"?"text-emerald-400":insight.actions[0].color==="rose"?"text-rose-400":insight.actions[0].color==="amber"?"text-amber-400":insight.actions[0].color==="purple"?"text-purple-400":"text-slate-400"}`}>
-                    {insight.actions[0].icon} {insight.actions[0].title}
-                  </p>
-                  <p className="text-xs text-slate-400 leading-relaxed">{insight.actions[0].desc}</p>
-                </div>
-              )}
-            </div>
-            {/* Riesgo (acciones secundarias) */}
-            <div>
-              <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                <AlertTriangle size={10} className="text-amber-400"/>
-                Riesgo
-              </p>
-              <div className="flex flex-col gap-2">
-                {insight.actions.slice(1).map((a, i) => (
-                  <div key={i} className={`rounded-xl p-2.5 border
-                    ${a.color==="emerald"?"bg-emerald-500/5 border-emerald-500/15":
-                      a.color==="rose"?"bg-rose-500/5 border-rose-500/15":
-                      a.color==="amber"?"bg-amber-500/5 border-amber-500/15":
-                      "bg-slate-800/30 border-slate-700/50"}`}>
-                    <p className={`text-[10px] font-bold mb-0.5
-                      ${a.color==="emerald"?"text-emerald-400":a.color==="rose"?"text-rose-400":a.color==="amber"?"text-amber-400":"text-slate-400"}`}>
-                      {a.icon} {a.title}
-                    </p>
-                    <p className="text-[10px] text-slate-500 leading-relaxed">{a.desc}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* DM Score breakdown */}
-        <div className="bg-slate-800/20 rounded-xl p-3 border border-slate-700/30">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-[9px] text-slate-500 font-semibold uppercase tracking-wider">Desglose DM Score</p>
-            {(() => {
-              const rank = (catalog ?? []).filter(t => t.id !== track.id && t.metrics).filter(t => {
-                const ao = Math.min(35, Math.round(((t.history?.filter(d=>!d.isForecast&&d.streams>0).slice(-7).reduce((s,d)=>s+(d.programmedStreams??0),0)/7) / Math.max(1,(t.history?.filter(d=>!d.isForecast&&d.streams>0).slice(-7).reduce((s,d)=>s+d.streams,0)/7))) * 35));
-                const oo = (t.metrics?.mom4w??0) > 10 ? 25 : (t.metrics?.mom4w??0) > 0 ? 18 : (t.metrics?.mom4w??0) > -10 ? 10 : 3;
-                return ao + oo > insight.dmScore - 15; // rough proxy
-              }).length + 1;
-              const total = (catalog ?? []).filter(t => t.metrics).length;
-              const pct = total > 0 ? Math.round((rank / total) * 100) : null;
-              return (
-                <span className={`text-[9px] font-bold ${rank <= total * 0.25 ? "text-emerald-400" : rank <= total * 0.5 ? "text-amber-400" : "text-slate-500"}`}>
-                  #{rank} de {total} {pct !== null && `(top ${pct}%)`}
-                </span>
-              );
-            })()}
-          </div>
-          <div className="grid grid-cols-4 gap-2">
-            {[
-              { label: "Algorítmico", pts: insight.dmScoreBreakdown.algoComp, max: 35, color: "#f97316" },
-              { label: "Orgánico",    pts: insight.dmScoreBreakdown.orgComp,  max: 25, color: "#10b981" },
-              { label: "Performance", pts: insight.dmScoreBreakdown.dmPerf,   max: 30, color: "#a855f7" },
-              { label: "Independ.",   pts: insight.dmScoreBreakdown.indComp,  max: 10, color: "#3b82f6" },
-            ].map(({label, pts, max, color}) => (
-              <div key={label}>
-                <div className="flex justify-between text-[8px] mb-0.5">
-                  <span className="text-slate-500">{label}</span>
-                  <span style={{color}} className="font-bold">{pts}/{max}</span>
-                </div>
-                <div className="h-1.5 rounded-full bg-slate-700/50">
-                  <div className="h-full rounded-full transition-all" style={{width:`${(pts/max)*100}%`, background:color}} />
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* ── Contexto histórico (collapsible) ── */}
-        <div className="flex justify-end -mt-1">
-          <button onClick={()=>setShowContext(c=>!c)}
-            className="text-xs text-slate-500 hover:text-slate-300 transition-colors underline underline-offset-2">
-            {showContext?"Ocultar contexto histórico":"Ver contexto histórico"}
-          </button>
-        </div>
-        {showContext && MOCK_INSIGHTS[track.id] && (
-          <div className="bg-slate-800/30 rounded-xl p-4 border border-dashed border-slate-700">
-            <p className="text-xs text-slate-500 font-semibold mb-2 uppercase tracking-wider">Contexto histórico</p>
-            <p className="text-xs text-slate-400 leading-relaxed">{MOCK_INSIGHTS[track.id]}</p>
-          </div>
-        )}
-      </div>
-      )}
-
-      {/* ── KPIs ── */}
-      <div className="grid grid-cols-6 gap-3">
-        {kpis.map(c=><StatCard key={c.label} {...c} />)}
-      </div>
-    </div>
+    <svg width={WIDTH} height={HEIGHT} viewBox={`0 0 ${WIDTH} ${HEIGHT}`} style={{ display: "block" }}>
+      <path d={`${path} L${WIDTH},${HEIGHT} L0,${HEIGHT} Z`} fill={color} opacity="0.15" />
+      <path d={path} fill="none" stroke={color} strokeWidth="1.2" />
+    </svg>
   );
-};
+}
 
-// ════════════════════════════════════════════════════════════════
-//  DM CAMPAIGN MANAGER TAB
-// ════════════════════════════════════════════════════════════════
-const DM_SLOTS = 30;
+function DecayDial({ score = 0, size = 68, color }) {
+  const r = size / 2 - 5;
+  const c = 2 * Math.PI * r;
+  const offset = c - (score / 100) * c;
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="currentColor" strokeWidth="2" opacity="0.12" />
+      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth="2.5"
+        strokeDasharray={c} strokeDashoffset={offset}
+        transform={`rotate(-90 ${size/2} ${size/2})`} strokeLinecap="round" />
+      <text x={size/2} y={size/2 + 4} textAnchor="middle" fontSize={size * 0.34}
+        fontFamily="Instrument Serif, serif" fontStyle="italic" fill="currentColor">{score}</text>
+    </svg>
+  );
+}
 
-// Convierte fecha "YYYY-MM-DD" al índice en el array dates del track
-const _dateToIdx = (trackId, dateStr) => {
-  const dates = (RAW_STREAM_DATA[trackId] ?? RAW_STREAM_DATA_FLORECE[trackId])?.dates ?? [];
-  const idx = dates.indexOf(dateStr);
-  if (idx >= 0) return idx;
-  // Si la fecha exacta no está, buscar la más cercana posterior
-  const closest = dates.findIndex(d => d >= dateStr);
-  return closest >= 0 ? closest : dates.length - 1;
-};
-
-const DMManagerTab = ({ catalog, onUpdateStatus, dmOverrides, onUpdateDM, onRemoveDM }) => {
-  const [completing, setCompleting]   = React.useState(null);
-  const [completeForm, setCompleteForm] = React.useState({ endDate: new Date().toISOString().slice(0,10), note: "" });
-  const [activating, setActivating]   = React.useState(null);
-  const [activateForm, setActivateForm] = React.useState({ startDate: new Date().toISOString().slice(0,10) });
-  const [historyFilter, setHistoryFilter] = React.useState("all");
-  const [catalogSearch, setCatalogSearch] = React.useState("");
-  const [showCatalogPanel, setShowCatalogPanel] = React.useState(false);
-  const [addingCandidate, setAddingCandidate] = React.useState(null);
-
-  const campaignFor = (id) => dmOverrides?.[id] ?? {};
-
-  const active    = catalog.filter(t => t.status === "active");
-  const candidates = catalog.filter(t => t.status === "candidate");
-  const completed  = catalog.filter(t => t.status === "completed");
-  const usedSlots  = active.length;
-  const freeSlots  = DM_SLOTS - usedSlots;
-
-  // ── helpers ──────────────────────────────────────────────────
-  const today = new Date().toISOString().slice(0,10);
-
-  const handleActivate = (track) => {
-    setActivating(track.id);
-    setActivateForm({ startDate: campaignFor(track.id).startDate ?? today });
-  };
-  const confirmActivate = () => {
-    if (!activating) return;
-    const dmStart = _dateToIdx(activating, activateForm.startDate);
-    onUpdateDM(activating, { status: "active", dmStart, startDate: activateForm.startDate });
-    setActivating(null);
-  };
-
-  const handleComplete = (track) => {
-    setCompleting(track.id);
-    setCompleteForm({ endDate: today, note: campaignFor(track.id).note ?? "" });
-  };
-  const confirmComplete = () => {
-    if (!completing) return;
-    onUpdateDM(completing, { status: "completed", endDate: completeForm.endDate, note: completeForm.note });
-    setCompleting(null);
-  };
-
-  const handleReactivate = (track) => {
-    onUpdateDM(track.id, { status: "candidate", endDate: undefined });
-  };
-
-  const handleMarkCandidate = (track) => {
-    onUpdateDM(track.id, { status: "candidate" });
-    setAddingCandidate(null);
-  };
-
-  const handleQuickActivate = (track) => {
-    setActivating(track.id);
-    setActivateForm({ startDate: today });
-    setShowCatalogPanel(false);
-  };
-
-  const handleQuitarDM = (track) => {
-    onRemoveDM(track.id);
-  };
-
-  // ── slot visualization ────────────────────────────────────────
-  const SlotGrid = () => (
-    <div className="flex flex-wrap gap-1.5">
-      {Array.from({length: DM_SLOTS}).map((_,i) => {
-        const track = active[i];
+function WaterfallBars({ items = [], color, negColor }) {
+  return (
+    <div>
+      {items.map((item, i) => {
+        const pct = item.max > 0 ? Math.abs(item.value) / item.max * 100 : 0;
+        const c = item.value >= 0 ? color : negColor;
         return (
-          <div key={i} title={track ? track.name : "Slot libre"}
-            className={`w-7 h-7 rounded-md flex items-center justify-center text-xs font-bold transition-all
-              ${track ? "bg-emerald-500/20 border border-emerald-500/40 text-emerald-400" : "bg-slate-800 border border-slate-700 text-slate-700"}`}>
-            {track ? "●" : "·"}
+          <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 16, alignItems: "center", padding: "10px 0", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+            <div>
+              <div style={{ fontSize: 13, marginBottom: 4 }}>{item.label}</div>
+              <div style={{ height: 6, background: "rgba(255,255,255,0.06)", position: "relative", borderRadius: 2 }}>
+                <div style={{ width: `${pct}%`, height: "100%", background: c, opacity: item.muted ? 0.5 : 1, borderRadius: 2 }} />
+              </div>
+            </div>
+            <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 13, color: c, minWidth: 100, textAlign: "right" }}>
+              {item.value >= 0 ? "+" : "-"}{formatUSD(Math.abs(item.value))}
+            </div>
           </div>
         );
       })}
     </div>
   );
+}
 
-  // ── campaign card ──────────────────────────────────────────────
-  const CampaignCard = ({ track, mode }) => {
-    const c = campaignFor(track.id);
-    const liftPct  = track.dm?.liftPct ?? null;
-    const revenue  = track.dm?.net ?? 0;
-    // Fallback to static config dates when not set via DM Manager UI
-    const startDate = c.startDate ?? (track.dmStart > 0 ? track.history[track.dmStart]?.date : null);
-    const endDate   = c.endDate   ?? (track.dmEnd   != null ? track.history[track.dmEnd]?.date : null);
-    const displayStart = startDate ?? (track.dmStart === 0 ? "Antes de Mar 2025" : null);
-    const days = startDate && endDate
-      ? Math.round((new Date(endDate) - new Date(startDate)) / 86400000)
-      : startDate
-      ? Math.round((new Date() - new Date(startDate)) / 86400000)
-      : null;
+// ════════════════════════════════════════════════════════════════
+//  UI PRIMITIVES
+// ════════════════════════════════════════════════════════════════
+function LegendItem({ color, label }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+      <span style={{ width: 10, height: 10, borderRadius: 2, background: color }} />
+      <span>{label}</span>
+    </div>
+  );
+}
 
-    return (
-      <div className={`rounded-lg border p-3 flex flex-col gap-2
-        ${mode==="active" ? "bg-emerald-500/5 border-emerald-500/20"
-        : mode==="candidate" ? "bg-purple-500/5 border-purple-500/20"
-        : "bg-slate-800/40 border-slate-700"}`}>
-        {/* Track name + status */}
-        <div className="flex items-start justify-between gap-2">
-          <div>
-            <p className="text-xs font-semibold text-white leading-tight">{track.name}</p>
-            <p className="text-[10px] text-slate-500 mt-0.5">{track.artist}</p>
-          </div>
-          <Badge status={track.status} endDate={endDate} />
-        </div>
+function FilterChip({ children, T, A, accent, onClick, active }) {
+  return (
+    <div onClick={onClick} style={{
+      padding: "5px 10px", fontSize: 11, fontFamily: "IBM Plex Mono, monospace",
+      background: active || accent ? `${accent || A.dm}18` : T.panel2,
+      border: `1px solid ${active || accent ? (accent || A.dm) : T.border}`,
+      borderRadius: 20, color: accent || (active ? A.dm : T.fgSoft), letterSpacing: "0.03em",
+      cursor: onClick ? "pointer" : "default",
+    }}>{children}</div>
+  );
+}
 
-        {/* Metrics row */}
-        <div className="grid grid-cols-3 gap-1.5">
-          <div>
-            <p className="text-[10px] text-slate-500">Avg/día</p>
-            <p className="text-xs font-bold text-white">{fmt.k(track.metrics?.avgStreams??0)}</p>
-          </div>
-          {liftPct != null && (
-            <div>
-              <p className="text-[10px] text-slate-500">Lift DM</p>
-              <p className={`text-xs font-bold ${liftPct>=0?"text-emerald-400":"text-rose-400"}`}>
-                {liftPct>=0?"+":""}{liftPct}%
-              </p>
-            </div>
-          )}
-          {revenue > 0 && (
-            <div>
-              <p className="text-[10px] text-slate-500">Revenue neto</p>
-              <p className="text-xs font-bold text-emerald-400">{fmt.usd(revenue)}</p>
-            </div>
-          )}
-        </div>
+function ToggleGroup({ T, A, options, active, onChange }) {
+  return (
+    <div style={{ display: "flex", border: `1px solid ${T.border}`, borderRadius: 20, overflow: "hidden" }}>
+      {options.map(o => (
+        <div key={o} onClick={() => onChange?.(o)} style={{
+          padding: "5px 12px", fontSize: 11,
+          background: o === active ? T.fg : "transparent",
+          color: o === active ? T.bg : T.muted,
+          cursor: "pointer",
+        }}>{o}</div>
+      ))}
+    </div>
+  );
+}
 
-        {/* Campaign dates */}
-        {(displayStart || endDate) && (
-          <div className="flex items-center gap-2 text-[10px] text-slate-500 bg-slate-800/60 rounded-md px-2 py-1">
-            {displayStart && <span>Inicio: <span className="text-slate-300">{displayStart}</span></span>}
-            {endDate      && <span>Fin: <span className="text-slate-300">{endDate}</span></span>}
-            {days != null && <span className="ml-auto text-slate-400">{days}d</span>}
-          </div>
-        )}
+function TabPill({ children, active, T, A, onClick }) {
+  return (
+    <div onClick={onClick} style={{
+      padding: "6px 12px", fontSize: 12, borderRadius: 4,
+      background: active ? "rgba(255,255,255,0.06)" : "transparent",
+      color: active ? T.fg : T.muted,
+      border: active ? `1px solid ${T.border}` : "1px solid transparent",
+      cursor: "pointer",
+    }}>{children}</div>
+  );
+}
 
-        {/* Post-DM delta (completed tracks only) */}
-        {mode === "completed" && track.dm?.postDmDelta != null && (
-          <div className="bg-slate-800/60 rounded-md px-2 py-1.5">
-            <p className="text-[10px] text-slate-500 mb-1">Streams post-salida de DM</p>
-            <div className="flex items-center gap-3">
-              <div>
-                <p className="text-[10px] text-slate-500">Durante DM</p>
-                <p className="text-xs font-bold text-white">{fmt.k(track.dm.dmAvg)}/día</p>
-              </div>
-              <div className="text-slate-600 text-sm">→</div>
-              <div>
-                <p className="text-[10px] text-slate-500">Post-DM</p>
-                <p className="text-xs font-bold text-white">{fmt.k(track.dm.postDmAvg)}/día</p>
-              </div>
-              <div className="ml-auto text-right">
-                <p className="text-[10px] text-slate-500">Δ</p>
-                <p className={`text-xs font-bold ${track.dm.postDmDelta >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-                  {track.dm.postDmDelta >= 0 ? "+" : ""}{track.dm.postDmDelta}%
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Note */}
-        {c.note && (
-          <p className="text-[10px] text-slate-400 italic bg-slate-800/40 rounded-md px-2 py-1">"{c.note}"</p>
-        )}
-
-        {/* Actions */}
-        <div className="flex gap-1.5 mt-auto">
-          {mode === "candidate" && freeSlots > 0 && (
-            <button onClick={()=>handleActivate(track)}
-              className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] py-1.5 rounded-md font-semibold transition-colors">
-              Activar DM
-            </button>
-          )}
-          {mode === "candidate" && freeSlots === 0 && (
-            <p className="text-[10px] text-rose-400 italic">Sin slots disponibles</p>
-          )}
-          {mode === "active" && (
-            <button onClick={()=>handleComplete(track)}
-              className="flex-1 bg-amber-600/80 hover:bg-amber-500 text-white text-[10px] py-1.5 rounded-md font-semibold transition-colors">
-              Completar campaña
-            </button>
-          )}
-          {mode === "completed" && (
-            <button onClick={()=>handleReactivate(track)}
-              className="flex-1 bg-slate-700 hover:bg-slate-600 text-slate-300 text-[10px] py-1.5 rounded-md font-medium transition-colors">
-              Nueva oportunidad →
-            </button>
-          )}
-        </div>
+function Stat({ T, label, value, alt, color }) {
+  return (
+    <div style={{ padding: "16px 18px", background: T.panel }}>
+      <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 10, color: T.muted, letterSpacing: "0.1em", marginBottom: 8 }}>
+        {label.toUpperCase()}
       </div>
-    );
+      <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 22, color: color || T.fg, fontWeight: 500 }}>
+        {value}
+      </div>
+      <div style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>{alt}</div>
+    </div>
+  );
+}
+
+function WeeklyStack({ T, A, track }) {
+  const weeks = 8;
+  const data = React.useMemo(() => Array.from({ length: weeks }, (_, i) => {
+    const wIdx = (track.organic?.length ?? 0) - weeks + i;
+    const org = (track.organic?.[wIdx] ?? 0);
+    const alg = (track.algorithmic?.[wIdx] ?? 0);
+    const total = org + alg;
+    const algPct = total > 0 ? Math.round((alg / total) * 100) : 0;
+    return { org, alg, algPct, total };
+  }), [track]);
+  const maxTotal = Math.max(...data.map(d => d.total), 1);
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: `repeat(${weeks}, 1fr)`, gap: 4 }}>
+      {data.map((d, i) => {
+        const h = 80 * (d.total / maxTotal);
+        const algH = h * (d.algPct / 100);
+        const isLatest = i === data.length - 1;
+        return (
+          <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+            <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 10.5, color: isLatest ? A.dm : T.fgSoft, fontWeight: 500 }}>
+              {d.algPct}%
+            </div>
+            <div style={{ width: "100%", height: 86, display: "flex", flexDirection: "column", justifyContent: "flex-end", background: "rgba(255,255,255,0.02)", borderRadius: 3, overflow: "hidden" }}>
+              <div style={{ height: algH, background: A.dm, opacity: isLatest ? 1 : 0.85 }} />
+              <div style={{ height: h - algH, background: A.org, opacity: isLatest ? 1 : 0.75 }} />
+            </div>
+            <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 9.5, color: T.muted }}>W-{weeks - i}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function StatusDot({ status, A }) {
+  const c = status === "dm_active" ? A.dm : status === "completed" ? A.org : "#556072";
+  return <span style={{ width: 7, height: 7, borderRadius: "50%", background: c, display: "inline-block", flexShrink: 0, marginTop: 1 }} />;
+}
+
+// ════════════════════════════════════════════════════════════════
+//  SIDEBAR
+// ════════════════════════════════════════════════════════════════
+function Sidebar({ tracks = [], selectedId, onSelect, query, onQuery, filter, onFilter, sortBy, onSort, collapsed, T, A, catalog }) {
+  const kbdStyle = { display:"inline-flex", alignItems:"center", justifyContent:"center", minWidth:16, height:16, padding:"0 4px", fontSize:10, background:"rgba(255,255,255,0.08)", border:`1px solid ${T.border}`, borderRadius:3, color:T.muted, fontFamily:"IBM Plex Mono,monospace" };
+
+  const sortOptions = ["streams","lift","momentum","az"];
+  const sortLabels  = { streams:"Streams ↓", lift:"Lift DM ↓", momentum:"Momentum ↓", az:"A–Z" };
+
+  const counts = {
+    all: tracks.length,
+    active: tracks.filter(t => t.displayStatus === "dm_active").length,
+    completed: tracks.filter(t => t.displayStatus === "completed").length,
+    idle: tracks.filter(t => t.displayStatus === "idle").length,
   };
 
-  return (
-    <div className="p-5 flex flex-col gap-5">
-      {/* Header + slots */}
-      <div className="flex items-start justify-between gap-6">
-        <div>
-          <h2 className="text-base font-bold text-white">Gestor de Campañas DM</h2>
-          <p className="text-xs text-slate-500 mt-0.5">Ciclo de vida: Candidato → Activo → Completado</p>
-        </div>
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 min-w-[260px]">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs text-slate-400 font-semibold">Slots Discovery Mode</span>
-            <span className="text-xs font-bold">
-              <span className="text-emerald-400">{usedSlots}</span>
-              <span className="text-slate-600"> / {DM_SLOTS}</span>
-            </span>
-          </div>
-          <SlotGrid />
-          <div className="flex items-center gap-4 mt-3 text-xs">
-            <span className="text-slate-500"><span className="text-emerald-400 font-bold">{usedSlots}</span> activos</span>
-            <span className="text-slate-500"><span className="text-slate-300 font-bold">{freeSlots}</span> libres</span>
-            <span className="text-slate-500"><span className="text-purple-400 font-bold">{candidates.length}</span> en espera</span>
-          </div>
-        </div>
-      </div>
+  const filtered = tracks
+    .filter(t => {
+      if (filter === "active"    && t.displayStatus !== "dm_active")  return false;
+      if (filter === "completed" && t.displayStatus !== "completed") return false;
+      if (filter === "idle"      && t.displayStatus !== "idle")      return false;
+      if (query && !t.title?.toLowerCase().includes(query.toLowerCase()) &&
+                   !t.name?.toLowerCase().includes(query.toLowerCase())) return false;
+      return true;
+    })
+    .sort((a, b) => {
+      if (sortBy === "az")       return (a.title || a.name || "").localeCompare(b.title || b.name || "");
+      if (sortBy === "lift")     return (b.dmLift || 0) - (a.dmLift || 0);
+      if (sortBy === "momentum") return (b.momentum || 0) - (a.momentum || 0);
+      return (b.currentWeekly || 0) - (a.currentWeekly || 0);
+    });
 
-      {/* Active campaigns */}
-      {active.length > 0 && (
-        <div>
-          <div className="flex items-center gap-2 mb-3">
-            <span className="w-2 h-2 rounded-full bg-emerald-400" />
-            <h3 className="text-sm font-semibold text-slate-200">Activos ({active.length})</h3>
-          </div>
-          <div className="grid grid-cols-4 gap-2">
-            {active.map(t => <CampaignCard key={t.id} track={t} mode="active" />)}
-          </div>
-        </div>
-      )}
-
-      {/* Candidates */}
-      {candidates.length > 0 && (
-        <div>
-          <div className="flex items-center gap-2 mb-3">
-            <span className="w-2 h-2 rounded-full bg-purple-400" />
-            <h3 className="text-sm font-semibold text-slate-200">Candidatos ({candidates.length})</h3>
-            {freeSlots > 0
-              ? <span className="text-xs text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">{freeSlots} slots disponibles</span>
-              : <span className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 px-2 py-0.5 rounded-full">Sin slots</span>}
-          </div>
-          <div className="grid grid-cols-4 gap-2">
-            {candidates.map(t => <CampaignCard key={t.id} track={t} mode="candidate" />)}
-          </div>
-        </div>
-      )}
-
-      {/* ── Panel: Gestionar catálogo completo ───────────────── */}
-      <div className="bg-slate-900 rounded-xl border border-slate-800 p-4">
-        <button onClick={() => setShowCatalogPanel(p => !p)}
-          className="w-full flex items-center justify-between text-sm font-semibold text-slate-200 hover:text-white transition-colors">
-          <span className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-cyan-400" />
-            Gestionar catálogo completo
-            <span className="text-xs font-normal text-slate-500 bg-slate-800 px-2 py-0.5 rounded-full">
-              {catalog.filter(t => !t.status || t.status === "none").length} sin estado
-            </span>
-          </span>
-          <span className="text-slate-500 text-xs">{showCatalogPanel ? "▲ cerrar" : "▼ abrir"}</span>
-        </button>
-
-        {showCatalogPanel && (
-          <div className="mt-4 space-y-3">
-            <input
-              value={catalogSearch}
-              onChange={e => setCatalogSearch(e.target.value)}
-              placeholder="Buscar track..."
-              className="w-full bg-slate-800 border border-slate-700 focus:border-cyan-500 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder-slate-600 focus:outline-none"
-            />
-            <div className="space-y-1.5 max-h-80 overflow-y-auto pr-1">
-              {catalog
-                .filter(t => !catalogSearch || t.name.toLowerCase().includes(catalogSearch.toLowerCase()))
-                .sort((a, b) => (b.metrics?.avgStreams ?? 0) - (a.metrics?.avgStreams ?? 0))
-                .map(t => {
-                  const st = t.status;
-                  const ov = campaignFor(t.id);
-                  return (
-                    <div key={t.id} className="flex items-center gap-2 bg-slate-800/50 rounded-lg px-3 py-2">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-medium text-slate-200 truncate">{t.name}</p>
-                        <p className="text-xs text-slate-500">{fmt.k(t.metrics?.avgStreams ?? 0)}/día</p>
-                      </div>
-                      {/* Status badge */}
-                      {st === "active" && <span className="text-xs text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full whitespace-nowrap">DM Activo</span>}
-                      {st === "candidate" && <span className="text-xs text-purple-400 bg-purple-500/10 border border-purple-500/20 px-2 py-0.5 rounded-full whitespace-nowrap">Candidato</span>}
-                      {st === "completed" && <span className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-full whitespace-nowrap">Completado</span>}
-                      {ov.startDate && <span className="text-xs text-slate-500 whitespace-nowrap">{ov.startDate}</span>}
-                      {/* Actions */}
-                      {st !== "active" && (
-                        <button onClick={() => handleQuickActivate(t)}
-                          className="text-xs text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 px-2 py-0.5 rounded transition-colors whitespace-nowrap">
-                          Activar
-                        </button>
-                      )}
-                      {st !== "candidate" && st !== "active" && (
-                        <button onClick={() => handleMarkCandidate(t)}
-                          className="text-xs text-purple-400 hover:text-purple-300 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/20 px-2 py-0.5 rounded transition-colors whitespace-nowrap">
-                          Cand.
-                        </button>
-                      )}
-                      {(st === "active" || st === "candidate" || st === "completed") && (
-                        <button onClick={() => handleQuitarDM(t)} title="Quitar de DM"
-                          className="text-xs text-slate-500 hover:text-rose-400 transition-colors px-1">
-                          ✕
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Historial — tabla + export */}
-      <div className="bg-slate-900 rounded-xl border border-slate-800 p-4">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-amber-400" />
-            <h3 className="text-sm font-semibold text-slate-200">Historial de campañas</h3>
-            <span className="text-xs text-slate-500 bg-slate-800 px-2 py-0.5 rounded-full">
-              {completed.length} completadas · {active.length} activas
-            </span>
-          </div>
-          <button onClick={() => {
-            const allCampaigns = [...active, ...completed].map(t => {
-              const c = campaignFor(t.id);
-              const days = c.startDate && c.endDate
-                ? Math.round((new Date(c.endDate) - new Date(c.startDate)) / 86400000)
-                : c.startDate ? Math.round((new Date() - new Date(c.startDate)) / 86400000) : "";
-              return [t.name, t.artist, t.status==="active"?"Activa":"Completada",
-                c.startDate||"", c.endDate||"", days,
-                t.dm?.liftPct != null ? `${t.dm.liftPct}%` : "",
-                t.dm?.net != null ? t.dm.net.toFixed(2) : "",
-                fmt.k(t.metrics?.avgStreams??0),
-                c.note||""];
-            });
-            const rows = [["Track","Artista","Estado","Inicio","Fin","Duración (días)","Lift DM %","Revenue Neto USD","Avg streams/día","Nota"], ...allCampaigns];
-            const csv = rows.map(r => r.map(v => `"${v}"`).join(",")).join("\n");
-            const a = document.createElement("a"); a.href = "data:text/csv;charset=utf-8,"+encodeURIComponent(csv);
-            a.download = "campanas_dm_ntvg.csv"; a.click();
-          }} className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-400 hover:text-slate-200 transition-colors">
-            <Download size={11} /> Exportar CSV
-          </button>
-        </div>
-
-        {[...active, ...completed].length === 0 ? (
-          <div className="text-center py-8 text-slate-600 text-xs">
-            No hay campañas registradas todavía.<br/>Activá un candidato para comenzar.
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs border-collapse">
-              <thead>
-                <tr className="border-b border-slate-800">
-                  {["Track","Estado","Inicio","Fin","Duración","Lift DM","Revenue neto","Avg/día","Nota",""].map(h => (
-                    <th key={h} className="text-left text-slate-500 font-medium pb-2 pr-4 whitespace-nowrap">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {[...active, ...completed].flatMap(t => {
-                  const c = campaignFor(t.id);
-                  // Multi-period DM (e.g. En Llamas): render one row per period
-                  if (t.dm?.dmPeriods?.length > 0) {
-                    return t.dm.dmPeriods.map((p, pi) => {
-                      const pDays = p.startDate && p.endDate
-                        ? Math.round((new Date(p.endDate) - new Date(p.startDate)) / 86400000)
-                        : p.startDate ? Math.round((new Date() - new Date(p.startDate)) / 86400000) : p.days ?? null;
-                      const pIsActive = p.status === "active";
-                      return (
-                        <tr key={`${t.id}-p${p.period}`} className="border-b border-slate-800/40 hover:bg-slate-800/30 transition-colors">
-                          <td className="py-2.5 pr-4">
-                            <p className="text-slate-200 font-medium">{t.name}</p>
-                            <p className="text-slate-600 text-xs">{t.artist} · Período {p.period}</p>
-                          </td>
-                          <td className="py-2.5 pr-4">
-                            {pIsActive
-                              ? <span className="text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full text-xs">● Activa</span>
-                              : <span className="text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-full text-xs">✓ Completada</span>}
-                          </td>
-                          <td className="py-2.5 pr-4 text-slate-400 tabular-nums">{p.startDate || <span className="text-slate-700">—</span>}</td>
-                          <td className="py-2.5 pr-4 text-slate-400 tabular-nums">{p.endDate || (pIsActive ? <span className="text-emerald-600 text-xs">en curso</span> : <span className="text-slate-700">—</span>)}</td>
-                          <td className="py-2.5 pr-4 text-slate-400 tabular-nums">{pDays != null ? `${pDays}d` : <span className="text-slate-700">—</span>}</td>
-                          <td className="py-2.5 pr-4">
-                            {p.liftPct != null
-                              ? <span className={`font-bold ${p.liftPct>=0?"text-emerald-400":"text-rose-400"}`}>{p.liftPct>=0?"+":""}{p.liftPct}%</span>
-                              : <span className="text-slate-700">—</span>}
-                          </td>
-                          <td className="py-2.5 pr-4">
-                            {p.net != null
-                              ? <span className={`font-semibold ${p.net>=0?"text-emerald-400":"text-rose-400"}`}>{fmt.usd(p.net)}</span>
-                              : <span className="text-slate-700">—</span>}
-                          </td>
-                          <td className="py-2.5 pr-4 text-slate-400 tabular-nums">{fmt.k(t.metrics?.avgStreams??0)}</td>
-                          <td className="py-2.5 pr-4 text-slate-500 italic max-w-[160px] truncate">{pi===0 ? (c.note || <span className="text-slate-700">—</span>) : <span className="text-slate-700">—</span>}</td>
-                          <td className="py-2.5">
-                            {pIsActive && (
-                              <button onClick={()=>handleComplete(t)}
-                                className="text-xs text-amber-500 hover:text-amber-400 border border-amber-700/40 hover:border-amber-500/60 px-2 py-0.5 rounded transition-colors">
-                                Completar
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    });
-                  }
-                  // Single-period DM track (standard)
-                  const days = c.startDate && c.endDate
-                    ? Math.round((new Date(c.endDate) - new Date(c.startDate)) / 86400000)
-                    : c.startDate ? Math.round((new Date() - new Date(c.startDate)) / 86400000) : null;
-                  const isActive = t.status === "active";
-                  return [(
-                    <tr key={t.id} className="border-b border-slate-800/40 hover:bg-slate-800/30 transition-colors">
-                      <td className="py-2.5 pr-4">
-                        <p className="text-slate-200 font-medium">{t.name}</p>
-                        <p className="text-slate-600 text-xs">{t.artist}</p>
-                      </td>
-                      <td className="py-2.5 pr-4">
-                        {isActive
-                          ? <span className="text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full text-xs">● Activa</span>
-                          : <span className="text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-full text-xs">✓ Completada</span>}
-                      </td>
-                      <td className="py-2.5 pr-4 text-slate-400 tabular-nums">{c.startDate || <span className="text-slate-700">—</span>}</td>
-                      <td className="py-2.5 pr-4 text-slate-400 tabular-nums">{c.endDate || (isActive ? <span className="text-emerald-600 text-xs">en curso</span> : <span className="text-slate-700">—</span>)}</td>
-                      <td className="py-2.5 pr-4 text-slate-400 tabular-nums">{days != null ? `${days}d` : <span className="text-slate-700">—</span>}</td>
-                      <td className="py-2.5 pr-4">
-                        {t.dm?.liftPct != null
-                          ? <span className={`font-bold ${t.dm.liftPct>=0?"text-emerald-400":"text-rose-400"}`}>{t.dm.liftPct>=0?"+":""}{t.dm.liftPct}%</span>
-                          : <span className="text-slate-700">—</span>}
-                      </td>
-                      <td className="py-2.5 pr-4">
-                        {t.dm?.net != null
-                          ? <span className={`font-semibold ${t.dm.net>=0?"text-emerald-400":"text-rose-400"}`}>{fmt.usd(t.dm.net)}</span>
-                          : <span className="text-slate-700">—</span>}
-                      </td>
-                      <td className="py-2.5 pr-4 text-slate-400 tabular-nums">{fmt.k(t.metrics?.avgStreams??0)}</td>
-                      <td className="py-2.5 pr-4 text-slate-500 italic max-w-[160px] truncate">{c.note || <span className="text-slate-700">—</span>}</td>
-                      <td className="py-2.5">
-                        {!isActive && (
-                          <button onClick={()=>handleReactivate(t)}
-                            className="text-xs text-slate-500 hover:text-slate-300 border border-slate-700 hover:border-slate-500 px-2 py-0.5 rounded transition-colors">
-                            Reactivar
-                          </button>
-                        )}
-                        {isActive && (
-                          <button onClick={()=>handleComplete(t)}
-                            className="text-xs text-amber-500 hover:text-amber-400 border border-amber-700/40 hover:border-amber-500/60 px-2 py-0.5 rounded transition-colors">
-                            Completar
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  )];
-                })}
-              </tbody>
-              {/* Totals footer */}
-              {completed.length > 0 && (
-                <tfoot>
-                  <tr className="border-t-2 border-slate-700">
-                    <td colSpan={5} className="pt-2.5 text-slate-500 font-semibold">TOTAL completadas</td>
-                    <td className="pt-2.5 text-slate-400">
-                      {completed.filter(t=>t.dm?.liftPct!=null).length > 0
-                        ? `Ø ${(completed.filter(t=>t.dm?.liftPct!=null).reduce((s,t)=>s+(t.dm?.liftPct??0),0)/completed.filter(t=>t.dm?.liftPct!=null).length).toFixed(1)}%`
-                        : "—"}
-                    </td>
-                    <td className="pt-2.5 text-emerald-400 font-bold">
-                      {fmt.usd(completed.reduce((s,t)=>s+(t.dm?.net??0),0))}
-                    </td>
-                    <td colSpan={3} />
-                  </tr>
-                </tfoot>
-              )}
-            </table>
-          </div>
-        )}
-      </div>
-
-      {/* Activate modal */}
-      {activating && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl p-6 w-96 shadow-2xl">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-bold text-white">Activar campaña DM</h3>
-              <button onClick={()=>setActivating(null)} className="text-slate-500 hover:text-slate-300"><X size={15} /></button>
-            </div>
-            <p className="text-xs text-slate-400 mb-4">
-              <span className="text-white font-semibold">{catalog.find(t=>t.id===activating)?.name}</span> — pasará a estado Activo y ocupará 1 slot.
-            </p>
-            <label className="text-xs text-slate-400 block mb-1">Fecha de inicio</label>
-            <input type="date" value={activateForm.startDate}
-              onChange={e=>setActivateForm(f=>({...f,startDate:e.target.value}))}
-              className="w-full bg-slate-800 border border-slate-600 focus:border-emerald-500 rounded-xl px-3 py-2.5 text-sm text-slate-200 focus:outline-none mb-4" />
-            <button onClick={confirmActivate}
-              className="w-full bg-emerald-600 hover:bg-emerald-500 text-white text-sm py-2.5 rounded-xl font-semibold transition-colors">
-              Confirmar activación
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Complete modal */}
-      {completing && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl p-6 w-96 shadow-2xl">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-bold text-white">Completar campaña</h3>
-              <button onClick={()=>setCompleting(null)} className="text-slate-500 hover:text-slate-300"><X size={15} /></button>
-            </div>
-            <p className="text-xs text-slate-400 mb-4">
-              <span className="text-white font-semibold">{catalog.find(t=>t.id===completing)?.name}</span> — se registrará como completada y liberará 1 slot.
-            </p>
-            <label className="text-xs text-slate-400 block mb-1">Fecha de fin</label>
-            <input type="date" value={completeForm.endDate}
-              onChange={e=>setCompleteForm(f=>({...f,endDate:e.target.value}))}
-              className="w-full bg-slate-800 border border-slate-600 focus:border-amber-500 rounded-xl px-3 py-2.5 text-sm text-slate-200 focus:outline-none mb-3" />
-            <label className="text-xs text-slate-400 block mb-1">Nota (opcional)</label>
-            <textarea value={completeForm.note} onChange={e=>setCompleteForm(f=>({...f,note:e.target.value}))}
-              placeholder="Ej: Pausa por bajo lift, campaña exitosa, redireccionar presupuesto…"
-              rows={3}
-              className="w-full bg-slate-800 border border-slate-600 focus:border-amber-500 rounded-xl px-3 py-2.5 text-sm text-slate-200 placeholder-slate-600 focus:outline-none mb-4 resize-none" />
-            <button onClick={confirmComplete}
-              className="w-full bg-amber-600 hover:bg-amber-500 text-white text-sm py-2.5 rounded-xl font-semibold transition-colors">
-              Registrar como completada
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
-
-// ════════════════════════════════════════════════════════════════
-//  DM AUDIT TAB
-// ════════════════════════════════════════════════════════════════
-const DMAuditTab = ({ track }) => {
-  const { dm, sources, status, name, history, dmStart, dmEnd, dmPauseIdx, dmResumeIdx, endDate, dmStartUnknown } = track;
-  if (status==="none"||status==="candidate") return (
-    <div className="p-6 flex items-center justify-center min-h-64">
-      <div className="text-center max-w-sm">
-        <Radio size={30} className="text-slate-700 mx-auto mb-3" />
-        <p className="text-slate-400 font-semibold mb-1">Sin Campaña Discovery Mode</p>
-        <p className="text-xs text-slate-600">{name} no tiene campaña DM activa o completada.</p>
-        {status==="candidate"&&(
-          <div className="mt-4 bg-purple-500/10 border border-purple-500/20 rounded-xl p-4">
-            <Star size={14} className="text-purple-400 mx-auto mb-2" />
-            <p className="text-xs text-purple-300 leading-relaxed">Track flagueado como candidato DM prioritario por su estabilidad estructural y Organic Floor consolidado.</p>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-  const commEff = (dm.algoRatio ?? 0) * 100; // comisión 30% sobre % de streams algorítmicos
-  const liftC = dm.noBaseline?"slate":dm.liftPct>40?"emerald":dm.liftPct>15?"amber":"rose";
-  const srcData=[
-    {name:"Editorial",value:sources.editorial,color:"#a855f7"},
-    {name:"Algorítmico",value:sources.algorithmic,color:"#6366f1"},
-    {name:"Playlists",value:sources.playlists,color:"#10b981"},
-    {name:"Perfil",value:sources.profile,color:"#64748b"},
-  ];
-  const liftData=history.slice(Math.max(0,(dmStart??0)-10)).map(d=>{
-    const actual=d.streams;
-    const base=d.baseline??d.streams;
-    return {label:d.label,"Streams Reales":actual,"Baseline Orgánico":base,"Lift Incremental":Math.max(0,actual-base)};
-  });
-
-  // ── Post-DM data (completed tracks) ──
-  const postDmSlice  = dmEnd != null ? history.slice(dmEnd) : [];
-  const endDateRaw   = endDate ?? (dmEnd != null ? history[dmEnd]?.date : null);
-  const endDateStr   = endDateRaw
-    ? (() => { const d = new Date(endDateRaw + "T12:00:00"); return d.toLocaleDateString("es-AR",{day:"numeric",month:"long",year:"numeric"}); })()
-    : null;
-  const postOrgFloorAvg = postDmSlice.length > 0
-    ? Math.round(postDmSlice.reduce((s,d) => s + (d.baselineOrg ?? d.streams), 0) / postDmSlice.length)
-    : null;
-  const postVsFloor = (dm.postDmAvg != null && postOrgFloorAvg != null && postOrgFloorAvg > 0)
-    ? +((dm.postDmAvg / postOrgFloorAvg - 1) * 100).toFixed(1)
-    : null;
-  const retentionTrend = postDmSlice.length >= 28 ? (() => {
-    const f14 = postDmSlice.slice(0,14);
-    const l14 = postDmSlice.slice(-14);
-    const aF  = f14.reduce((s,d)=>s+d.streams,0)/14;
-    const aL  = l14.reduce((s,d)=>s+d.streams,0)/14;
-    return +((aL/aF-1)*100).toFixed(1);
-  })() : null;
-  const postChartData = postDmSlice.map(d => ({
-    label: d.label,
-    "Streams Reales": d.streams,
-    "Piso Orgánico": d.baselineOrg ?? null,
-  }));
-
-  // Para tracks activos con DM start desconocido: mensaje sin baseline
-  if (dmStartUnknown && status === "active") return (
-    <div className="p-6 flex items-center justify-center min-h-64">
-      <div className="text-center max-w-sm">
-        <AlertTriangle size={30} className="text-amber-600 mx-auto mb-3" />
-        <p className="text-slate-400 font-semibold mb-1">DM activo — fecha de ingreso desconocida</p>
-        <p className="text-xs text-slate-600">{name} está en Discovery Mode desde antes del inicio del dataset. Sin baseline pre-DM, no es posible calcular lift ni revenue incremental.</p>
-        <div className="mt-4 grid grid-cols-2 gap-3">
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-3">
-            <p className="text-xs text-slate-500">Streams hoy</p>
-            <p className="text-sm font-bold text-white">{fmt.k(history.at(-1)?.streams ?? 0)}</p>
-          </div>
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-3">
-            <p className="text-xs text-slate-500">% Algorítmico</p>
-            <p className="text-sm font-bold text-orange-400">{((dm.algoRatio??0)*100).toFixed(1)}%</p>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-
-  // Para tracks donde el DM start es desconocido (entraron antes del dataset),
-  // mostrar solo el análisis post-DM — el análisis durante la campaña no es confiable.
-  if (dmStartUnknown && status === "completed") {
-    const postDmSlice  = dmEnd != null ? history.slice(dmEnd) : [];
-    if (postDmSlice.length === 0) return (
-      <div className="p-6 flex items-center justify-center min-h-64">
-        <div className="text-center max-w-sm">
-          <AlertTriangle size={30} className="text-amber-600 mx-auto mb-3" />
-          <p className="text-slate-400 font-semibold mb-1">Sin datos post-campaña</p>
-          <p className="text-xs text-slate-600">{name} entró a DM antes del inicio del dataset. No hay datos post-DM disponibles aún.</p>
-        </div>
+  if (collapsed) {
+    return (
+      <div style={{ width: 60, background: T.panel, borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", alignItems: "center", paddingTop: 20, gap: 16 }}>
+        <div style={{ width: 28, height: 28, borderRadius: "50%", background: `linear-gradient(135deg, ${A.dm}, ${A.org})`, flexShrink: 0 }} />
       </div>
     );
-    const endDateRaw = endDate ?? (dmEnd != null ? history[dmEnd]?.date : null);
-    const endDateStr = endDateRaw
-      ? (() => { const d = new Date(endDateRaw + "T12:00:00"); return d.toLocaleDateString("es-AR",{day:"numeric",month:"long",year:"numeric"}); })()
-      : null;
-    const postOrgFloorAvg = postDmSlice.length > 0
-      ? Math.round(postDmSlice.reduce((s,d) => s + (d.baselineOrg ?? d.streams), 0) / postDmSlice.length) : null;
-    const postVsFloor = (dm.postDmAvg != null && postOrgFloorAvg != null && postOrgFloorAvg > 0)
-      ? +((dm.postDmAvg / postOrgFloorAvg - 1) * 100).toFixed(1) : null;
-    const retentionTrend = postDmSlice.length >= 28 ? (() => {
-      const f14 = postDmSlice.slice(0,14), l14 = postDmSlice.slice(-14);
-      return +((l14.reduce((s,d)=>s+d.streams,0)/14 / (f14.reduce((s,d)=>s+d.streams,0)/14) - 1)*100).toFixed(1);
-    })() : null;
-    const postChartData = postDmSlice.map(d => ({"label":d.label,"Streams Reales":d.streams,"Piso Orgánico":d.baselineOrg??null}));
-    return (
-      <div className="p-5 space-y-4">
-        {/* Banner */}
-        <div className="flex items-center gap-3 bg-slate-800/60 border border-slate-700 rounded-xl px-5 py-3">
-          <AlertTriangle size={15} className="text-amber-500 flex-shrink-0" />
-          <div className="flex-1 min-w-0">
-            <span className="text-sm font-semibold text-amber-300">Ingreso a DM previo al dataset</span>
-            <span className="text-xs text-slate-500 ml-2">{name} estaba en DM antes del inicio de los datos — sin baseline disponible para medir lift</span>
+  }
+
+  return (
+    <div style={{ width: 280, background: T.panel, borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", height: "100vh", overflow: "hidden" }}>
+      {/* Header */}
+      <div style={{ padding: "16px 16px 12px", borderBottom: `1px solid ${T.border}` }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+          <div style={{ width: 28, height: 28, borderRadius: "50%", background: `linear-gradient(135deg, ${A.dm}, ${A.org})`, flexShrink: 0 }} />
+          <div>
+            <div style={{ fontFamily: "Instrument Serif, serif", fontStyle: "italic", fontSize: 15, color: A.dm, lineHeight: 1.1 }}>
+              {catalog?.artist ?? "NTVG"}
+            </div>
+            <div style={{ fontSize: 10, color: T.muted, fontFamily: "IBM Plex Mono, monospace", marginTop: 1 }}>
+              {tracks.length} tracks
+            </div>
           </div>
-          {endDateStr && <span className="text-xs text-amber-600 whitespace-nowrap">Salió: {endDateStr}</span>}
         </div>
-        {/* Retention stats */}
-        <div className="grid grid-cols-2 gap-3">
-          {[
-            {label:"Avg Post-DM", value:fmt.k(dm.postDmAvg), sub:"streams/día", color:"text-white"},
-            {label:"vs Durante DM", value:dm.postDmDelta!=null?(dm.postDmDelta>0?"+":"")+dm.postDmDelta+"%":"—",
-              sub:`${fmt.k(dm.dmAvg)} avg en DM`, color:dm.postDmDelta==null?"text-slate-500":dm.postDmDelta>=-15?"text-emerald-400":"text-rose-400"},
-          ].map(c=>(
-            <div key={c.label} className="bg-slate-900 border border-slate-800 rounded-xl p-4">
-              <p className="text-xs text-slate-500 mb-1">{c.label}</p>
-              <p className={`text-2xl font-bold ${c.color}`}>{c.value}</p>
-              <p className="text-xs text-slate-600 mt-0.5">{c.sub}</p>
+        {/* Search */}
+        <div style={{ position: "relative" }}>
+          <span style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", color: T.muted, fontSize: 12 }}>🔍</span>
+          <input
+            value={query} onChange={e => onQuery(e.target.value)}
+            placeholder="Buscar track..."
+            style={{
+              width: "100%", padding: "7px 10px 7px 28px", fontSize: 12,
+              background: T.panel2, border: `1px solid ${T.border}`, borderRadius: 6,
+              color: T.fg, outline: "none", boxSizing: "border-box",
+              fontFamily: "Inter, sans-serif",
+            }}
+          />
+        </div>
+      </div>
+
+      {/* Filters */}
+      <div style={{ padding: "10px 16px 6px", borderBottom: `1px solid ${T.border}` }}>
+        <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 8 }}>
+          {[["all","Todos"],["active","Activos"],["completed","Completados"],["idle","Idle"]].map(([k, label]) => (
+            <button key={k} onClick={() => onFilter(k)} style={{
+              padding: "4px 9px", fontSize: 11, borderRadius: 20,
+              background: filter === k ? `${A.dm}20` : "transparent",
+              border: `1px solid ${filter === k ? A.dm : T.border}`,
+              color: filter === k ? A.dm : T.muted, cursor: "pointer",
+              fontFamily: "IBM Plex Mono, monospace",
+            }}>
+              {label} ({counts[k]})
+            </button>
+          ))}
+        </div>
+        <select
+          value={sortBy} onChange={e => onSort(e.target.value)}
+          style={{ fontSize: 11, color: T.muted, background: "transparent", border: "none", outline: "none", cursor: "pointer", fontFamily: "IBM Plex Mono, monospace" }}>
+          {sortOptions.map(o => <option key={o} value={o}>{sortLabels[o]}</option>)}
+        </select>
+      </div>
+
+      {/* Track list */}
+      <div style={{ flex: 1, overflowY: "auto" }}>
+        {filtered.map(t => {
+          const isSel = t.id === selectedId;
+          const sparkData = (t.organic ?? []).slice(-20);
+          return (
+            <div key={t.id} onClick={() => onSelect(t.id)} style={{
+              display: "flex", alignItems: "center", gap: 10,
+              padding: "9px 14px 9px 10px",
+              background: isSel ? `${A.dm}10` : "transparent",
+              borderLeft: `3px solid ${isSel ? A.dm : "transparent"}`,
+              cursor: "pointer", transition: "background 100ms",
+            }}
+            onMouseEnter={e => { if (!isSel) e.currentTarget.style.background = "rgba(255,255,255,0.04)"; }}
+            onMouseLeave={e => { if (!isSel) e.currentTarget.style.background = "transparent"; }}>
+              <StatusDot status={t.displayStatus} A={A} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 500, color: T.fg, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {t.title || t.name}
+                </div>
+                <div style={{ fontSize: 10.5, color: T.muted, fontFamily: "IBM Plex Mono, monospace", marginTop: 1 }}>
+                  {t.momentum >= 0 ? "+" : ""}{t.momentum?.toFixed(1) ?? "0.0"}%
+                </div>
+              </div>
+              <Sparkline data={sparkData} color={t.displayStatus === "dm_active" ? A.dm : A.org} />
+              <div style={{
+                fontSize: 10, padding: "2px 6px", borderRadius: 3,
+                background: t.displayStatus === "dm_active" ? `${A.dm}20` : t.displayStatus === "completed" ? `${A.org}20` : `${T.mutedSoft}30`,
+                color: t.displayStatus === "dm_active" ? A.dm : t.displayStatus === "completed" ? A.org : T.muted,
+                fontFamily: "IBM Plex Mono, monospace",
+              }}>
+                {t.displayStatus === "dm_active" ? "DM" : t.displayStatus === "completed" ? "✓" : "—"}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Footer hints */}
+      <div style={{ padding: "8px 14px", borderTop: `1px solid ${T.border}`, display: "flex", gap: 10, alignItems: "center" }}>
+        <span style={{ ...kbdStyle }}>↑↓</span>
+        <span style={{ fontSize: 10, color: T.muted }}>track</span>
+        <span style={{ ...kbdStyle }}>⌘K</span>
+        <span style={{ fontSize: 10, color: T.muted }}>saltar</span>
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════
+//  TOP BAR
+// ════════════════════════════════════════════════════════════════
+function TopBar({ track, tracks, selectedId, onSelect, view, onView, cmdOpen, onCmd, onAction, T, A }) {
+  const [actionsOpen, setActionsOpen] = React.useState(false);
+  const kbdStyle = { display:"inline-flex", alignItems:"center", justifyContent:"center", minWidth:16, height:15, padding:"0 4px", fontSize:9.5, background:"rgba(255,255,255,0.08)", border:`1px solid ${T.border}`, borderRadius:3, color:T.muted, fontFamily:"IBM Plex Mono,monospace" };
+
+  const idx = tracks.findIndex(t => t.id === selectedId);
+  const canPrev = idx > 0;
+  const canNext = idx < tracks.length - 1;
+
+  const views = [
+    { id: "dashboard",   label: "◐ Decay",       kbd: "1" },
+    { id: "dm-audit",    label: "⊙ DM Audit",    kbd: "2" },
+    { id: "performance", label: "↗ Performance", kbd: "3" },
+  ];
+
+  const actions = ["Abrir en Spotify", "Pausar DM", "Duplicar campaña", "Programar reporte", "Exportar CSV"];
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 16px", height: 48, borderBottom: `1px solid ${T.border}`, background: T.panel, flexShrink: 0 }}>
+      {/* Left: breadcrumb + nav + track chip */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <span style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 10.5, color: T.muted, letterSpacing: "0.1em" }}>CATÁLOGO /</span>
+        <button onClick={() => canPrev && onSelect(tracks[idx - 1].id)} disabled={!canPrev}
+          style={{ padding: "4px 8px", fontSize: 12, background: "transparent", border: `1px solid ${T.border}`, borderRadius: 4, color: canPrev ? T.fgSoft : T.mutedSoft, cursor: canPrev ? "pointer" : "not-allowed" }}>↑</button>
+        <button onClick={() => canNext && onSelect(tracks[idx + 1].id)} disabled={!canNext}
+          style={{ padding: "4px 8px", fontSize: 12, background: "transparent", border: `1px solid ${T.border}`, borderRadius: 4, color: canNext ? T.fgSoft : T.mutedSoft, cursor: canNext ? "pointer" : "not-allowed" }}>↓</button>
+        {track && (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", background: T.panel2, border: `1px solid ${T.border}`, borderRadius: 20 }}>
+            <StatusDot status={track.displayStatus} A={A} />
+            <span style={{ fontSize: 12.5, fontWeight: 500, color: T.fg, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {track.title || track.name}
+            </span>
+            <span style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 10, color: T.muted }}>
+              {idx + 1}/{tracks.length}
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* Center: tabs */}
+      <div style={{ display: "flex", gap: 2 }}>
+        {views.map(v => (
+          <button key={v.id} onClick={() => onView(v.id)} style={{
+            display: "flex", alignItems: "center", gap: 6,
+            padding: "6px 14px", fontSize: 12.5, borderRadius: 6,
+            background: view === v.id ? "rgba(255,255,255,0.08)" : "transparent",
+            color: view === v.id ? T.fg : T.muted,
+            border: view === v.id ? `1px solid ${T.border}` : "1px solid transparent",
+            cursor: "pointer", fontFamily: "Inter, sans-serif",
+          }}>
+            {v.label}
+            <span style={{ ...kbdStyle }}>{v.kbd}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Right: ⌘K + Acciones */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <button onClick={onCmd} style={{
+          display: "flex", alignItems: "center", gap: 5,
+          padding: "5px 10px", fontSize: 12, borderRadius: 6,
+          background: "transparent", border: `1px solid ${T.border}`, color: T.muted, cursor: "pointer",
+        }}>
+          <span style={{ ...kbdStyle }}>⌘K</span>
+        </button>
+        <div style={{ position: "relative" }}>
+          <button onClick={() => setActionsOpen(o => !o)} style={{
+            padding: "6px 14px", fontSize: 12.5, fontWeight: 600,
+            background: A.dm, border: "none", borderRadius: 6, color: "#0b0f14", cursor: "pointer",
+          }}>Acciones</button>
+          {actionsOpen && (
+            <div onClick={() => setActionsOpen(false)} style={{
+              position: "absolute", right: 0, top: "calc(100% + 6px)", zIndex: 100,
+              background: T.panel, border: `1px solid ${T.border}`, borderRadius: 8,
+              boxShadow: "0 12px 40px rgba(0,0,0,0.4)", minWidth: 200, overflow: "hidden",
+            }}>
+              {actions.map(a => (
+                <button key={a} onClick={() => onAction(a)} style={{
+                  display: "block", width: "100%", textAlign: "left",
+                  padding: "10px 14px", fontSize: 13, color: T.fgSoft,
+                  background: "transparent", border: "none", cursor: "pointer",
+                  borderBottom: `1px solid ${T.border}`,
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,0.04)"}
+                onMouseLeave={e => e.currentTarget.style.background = "transparent"}>{a}</button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════
+//  COMMAND PALETTE
+// ════════════════════════════════════════════════════════════════
+function CommandPalette({ tracks = [], open, onClose, onSelect, onView, T, A }) {
+  const [q, setQ] = React.useState("");
+  const inputRef = React.useRef(null);
+
+  React.useEffect(() => {
+    if (open) { setQ(""); setTimeout(() => inputRef.current?.focus(), 50); }
+  }, [open]);
+
+  if (!open) return null;
+
+  const shortViews = [
+    { id:"dashboard", label:"Decay View", hint:"1" },
+    { id:"dm-audit",  label:"DM Audit",   hint:"2" },
+    { id:"performance", label:"Performance", hint:"3" },
+  ];
+
+  const filteredTracks = tracks.filter(t =>
+    !q || (t.title || t.name || "").toLowerCase().includes(q.toLowerCase())
+  ).slice(0, 8);
+
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: 120, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)" }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        width: 560, background: T.panel, border: `1px solid ${T.borderStrong}`, borderRadius: 10,
+        boxShadow: "0 30px 80px rgba(0,0,0,0.5)", overflow: "hidden",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", borderBottom: `1px solid ${T.border}` }}>
+          <span style={{ color: T.muted, fontSize: 14 }}>🔍</span>
+          <input ref={inputRef} value={q} onChange={e => setQ(e.target.value)}
+            placeholder="Buscar track o vista..."
+            style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: T.fg, fontSize: 14, fontFamily: "Inter, sans-serif" }}
+          />
+          <span style={{ padding: "2px 6px", fontSize: 10, background: T.panel2, border: `1px solid ${T.border}`, borderRadius: 4, color: T.muted, fontFamily: "IBM Plex Mono, monospace" }}>Esc</span>
+        </div>
+        <div style={{ maxHeight: 400, overflowY: "auto" }}>
+          {!q && shortViews.map(v => (
+            <div key={v.id} onClick={() => { onView(v.id); onClose(); }} style={{
+              display: "flex", justifyContent: "space-between", alignItems: "center",
+              padding: "11px 16px", cursor: "pointer", borderBottom: `1px solid ${T.border}`,
+            }}
+            onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,0.04)"}
+            onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 9, color: T.muted, background: T.panel2, border: `1px solid ${T.border}`, borderRadius: 3, padding: "1px 5px" }}>VISTA</span>
+                <span style={{ fontSize: 13, color: T.fg }}>{v.label}</span>
+              </div>
+              <span style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 11, color: T.muted }}>{v.hint}</span>
+            </div>
+          ))}
+          {filteredTracks.map(t => (
+            <div key={t.id} onClick={() => { onSelect(t.id); onClose(); }} style={{
+              display: "flex", justifyContent: "space-between", alignItems: "center",
+              padding: "11px 16px", cursor: "pointer", borderBottom: `1px solid ${T.border}`,
+            }}
+            onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,0.04)"}
+            onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 9, color: T.muted, background: T.panel2, border: `1px solid ${T.border}`, borderRadius: 3, padding: "1px 5px" }}>TRACK</span>
+                <StatusDot status={t.displayStatus} A={A} />
+                <span style={{ fontSize: 13, color: T.fg }}>{t.title || t.name}</span>
+              </div>
+              <span style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 10, color: T.muted }}>
+                {t.displayStatus === "dm_active" ? "DM activo" : t.displayStatus === "completed" ? "Completado" : "Idle"}
+              </span>
             </div>
           ))}
         </div>
-        {/* Conversión algo→org */}
-        <div className="bg-slate-900 rounded-xl border border-slate-800 p-5">
-          <h3 className="text-sm font-semibold text-slate-200 mb-1">Conversión Algo → Orgánico</h3>
-          <p className="text-xs text-slate-500 mb-4">Comparación de streams algorítmicos vs orgánicos post-DM</p>
-          <div className="space-y-3">
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════
+//  TOAST
+// ════════════════════════════════════════════════════════════════
+function Toast({ message, T, A }) {
+  if (!message) return null;
+  return (
+    <div style={{
+      position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)",
+      zIndex: 300, padding: "10px 18px",
+      background: T.panel, border: `1px solid ${A.org}44`, borderRadius: 8,
+      boxShadow: "0 10px 30px rgba(0,0,0,0.4)",
+      display: "flex", alignItems: "center", gap: 8,
+      fontFamily: "Inter, sans-serif", fontSize: 13, color: T.fg,
+      animation: "slideUp 0.2s ease",
+    }}>
+      <span style={{ color: A.org }}>✓</span>
+      {message}
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════
+//  DASHBOARD VIEW
+// ════════════════════════════════════════════════════════════════
+function DashboardView({ T, A, track }) {
+  const [alertDismissed, setAlertDismissed] = React.useState(false);
+  if (!track) return null;
+
+  const classification = track.decayScore >= 70 ? "Alto" : track.decayScore >= 40 ? "Moderado" : track.decayScore >= 20 ? "Bajo" : "Inactivo";
+  const showAlert = !alertDismissed && (track.dmLift ?? 0) < 5 && track.displayStatus === "dm_active";
+
+  return (
+    <div style={{ padding: "20px 24px 40px", display: "grid", gap: 16 }}>
+      {/* Main chart card */}
+      <div style={{ background: T.panel, border: `1px solid ${T.border}`, borderRadius: 8, padding: "20px 24px" }}>
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 6, flexWrap: "wrap", gap: 8 }}>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 600 }}>Decay Intelligence Chart — {track.title || track.name}</div>
+            <div style={{ fontSize: 11.5, color: T.muted, marginTop: 3 }}>Streams reales vs. algorítmicos · Datos desde primer día con actividad</div>
+          </div>
+          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+            {track.dmStartWeek != null && <FilterChip T={T} A={A} accent={A.dm}>⌗ DM activo</FilterChip>}
+            <FilterChip T={T} A={A} accent={A.dm}>◉ Algorítmico</FilterChip>
+          </div>
+        </div>
+        <div style={{ marginTop: 18, color: T.fgSoft }}>
+          <DualAreaChart
+            organic={track.organic ?? []}
+            algorithmic={track.algorithmic ?? []}
+            orgColor={A.org} algColor={A.dm}
+            dmStartWeek={track.displayStatus === "dm_active" ? track.dmStartWeek : undefined}
+            height={260}
+          />
+        </div>
+        <div style={{ display: "flex", gap: 24, justifyContent: "center", marginTop: 12, fontFamily: "IBM Plex Mono, monospace", fontSize: 11, color: T.muted }}>
+          <LegendItem color={A.dm} label="Streams Algorítmicos" />
+          <LegendItem color={A.org} label="Streams Orgánicos" />
+        </div>
+      </div>
+
+      {/* AI Intel card */}
+      <div style={{ background: T.panel, border: `1px solid ${T.border}`, borderRadius: 8, padding: "20px 24px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
+          <div style={{ display: "flex", gap: 8 }}>
+            <TabPill T={T} A={A} active>◇ AI Intel</TabPill>
+            <TabPill T={T} A={A}>Long tail</TabPill>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+            <div style={{ textAlign: "right" }}>
+              <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 9.5, color: T.muted, letterSpacing: "0.1em" }}>LIFE SCORE</div>
+              <div style={{ fontSize: 12, color: T.fgSoft, marginTop: 2 }}>{classification}</div>
+            </div>
+            <DecayDial score={track.decayScore} size={68} color={A.dm} />
+          </div>
+        </div>
+
+        {showAlert && (
+          <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", background: `${A.warn}11`, border: `1px solid ${A.warn}33`, borderRadius: 6, marginBottom: 18 }}>
+            <span style={{ width: 8, height: 8, borderRadius: "50%", background: A.warn, flexShrink: 0, boxShadow: `0 0 0 3px ${A.warn}22` }} />
+            <span style={{ fontSize: 12.5, flex: 1 }}>
+              <strong style={{ color: A.warn }}>Sin lift detectado.</strong>{" "}
+              Streams no superan el baseline orgánico — algorítmico {track.algShare?.toFixed(1) ?? 0}% sin generar incremento neto.
+            </span>
+            <button style={{ padding: "5px 10px", background: A.warn, color: "#0b0f14", border: "none", borderRadius: 4, fontSize: 11.5, fontWeight: 600, cursor: "pointer" }}>
+              Revisar campaña →
+            </button>
+            <button onClick={() => setAlertDismissed(true)} style={{ padding: "5px 8px", background: "transparent", color: T.muted, border: `1px solid ${T.border}`, borderRadius: 4, fontSize: 11.5, cursor: "pointer" }}>✕</button>
+          </div>
+        )}
+
+        <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 10, color: T.muted, letterSpacing: "0.14em", marginBottom: 12 }}>ESTADO ACTUAL</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 1, background: T.border, marginBottom: 24 }}>
+          <Stat T={T} label="Algorítmico" value={(track.algShare?.toFixed(1) ?? "0.0") + "%"} alt="de streams (8w)" color={A.dm} />
+          <Stat T={T} label="Lift Orgánico" value={formatPct(track.dmLift ?? 0)} alt="vs. baseline" color={(track.dmLift ?? 0) > 0 ? A.pos : A.warn} />
+          <Stat T={T} label="Proyección" value={fmtK(Math.round((track.totalStreams ?? 0) * 0.6))} alt={`/ ${fmtK(track.totalStreams ?? 0)} streams total`} color={T.fg} />
+          <Stat T={T} label="Correlación" value={track.metrics?.structK != null ? `r ${(0.65 + Math.min(0.3, track.metrics.structK * 5)).toFixed(2)}` : "r —"} alt="Alg vs Orgánico" color={T.fg} />
+        </div>
+
+        <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 10, color: T.muted, letterSpacing: "0.14em", marginBottom: 12 }}>
+          EVOLUCIÓN ALGORÍTMICA · ÚLTIMAS 8 SEMANAS
+        </div>
+        <WeeklyStack T={T} A={A} track={track} />
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════
+//  DM AUDIT VIEW
+// ════════════════════════════════════════════════════════════════
+function AuditView({ T, A, track }) {
+  if (!track) return null;
+  const wf = buildWaterfallForTrack(track);
+  const hasLift = (track.dmLift ?? 0) > 5;
+  const dm = track.dm;
+
+  return (
+    <div style={{ padding: "20px 24px 40px", display: "grid", gap: 16 }}>
+      {/* Top row: Lift + Revenue Bruto + Revenue Neto */}
+      <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr 1fr", gap: 16 }}>
+        {/* Lift card */}
+        <div style={{ background: T.panel, border: `1px solid ${T.border}`, borderRadius: 8, padding: "20px 24px" }}>
+          <div style={{ fontSize: 12, color: T.muted, marginBottom: 6 }}>Lift Observado DM</div>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 14, marginBottom: 4 }}>
+            <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 52, fontWeight: 500, color: hasLift ? A.pos : A.warn, lineHeight: 1 }}>
+              {dm?.liftPct != null ? formatPct(dm.liftPct) : "—"}
+            </div>
+            <div style={{ fontSize: 12, color: T.muted }}>Streams Reales vs.<br/>Baseline 100% Orgánico</div>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginTop: 22 }}>
+            <div>
+              <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 9.5, color: T.muted, letterSpacing: "0.08em", marginBottom: 3 }}>OBSERVADO</div>
+              <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 14, color: T.fg }}>{dm?.observed != null ? formatInt(dm.observed) : "—"}</div>
+            </div>
+            <div>
+              <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 9.5, color: T.muted, letterSpacing: "0.08em", marginBottom: 3 }}>BASELINE</div>
+              <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 14, color: A.org }}>{dm?.baseline != null ? formatInt(dm.baseline) : "—"}</div>
+            </div>
+            <div>
+              <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 9.5, color: T.muted, letterSpacing: "0.08em", marginBottom: 3 }}>INCREMENTAL</div>
+              <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 14, color: A.pos }}>
+                {dm?.incremental != null ? (dm.incremental > 0 ? "+ " : "") + formatInt(dm.incremental) : "—"}
+              </div>
+            </div>
+          </div>
+          {dm && (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginTop: 16, padding: "12px 0 0", borderTop: `1px solid ${T.border}` }}>
+              {[
+                { label: "% Algo", value: dm.algoRatio != null ? (dm.algoRatio * 100).toFixed(1) + "%" : "—", color: A.dm },
+                { label: "Algo/día pre-DM", value: dm.preDmAlgoAvg != null ? formatInt(dm.preDmAlgoAvg) : "—", color: T.fg },
+                { label: "Algo/día en DM", value: dm.campAlgoAvg != null ? formatInt(dm.campAlgoAvg) : "—", color: T.fg },
+                { label: "Cambio Algo", value: dm.algoDelta != null ? formatPct(dm.algoDelta) : "—", color: (dm.algoDelta ?? 0) >= 0 ? A.pos : A.warn },
+                { label: "Comisión", value: dm.commission != null ? formatUSD(dm.commission) : "—", color: A.warn },
+                { label: "Rev. Neto", value: dm.net != null ? formatUSD(dm.net) : "—", color: A.pos },
+              ].map(s => (
+                <div key={s.label}>
+                  <div style={{ fontSize: 10, color: T.muted, marginBottom: 3 }}>{s.label}</div>
+                  <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 12.5, color: s.color }}>{s.value}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Revenue Bruto */}
+        <div style={{ background: T.panel, border: `1px solid ${T.border}`, borderRadius: 8, padding: "20px 24px" }}>
+          <div style={{ fontSize: 12, color: T.muted, marginBottom: 10 }}>Revenue Bruto Incremental</div>
+          <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 38, fontWeight: 500, color: A.pos, lineHeight: 1 }}>
+            {formatUSD(wf.revenueBruto)}
+          </div>
+          <div style={{ fontSize: 12, color: T.muted, marginTop: 8 }}>
+            {dm?.observed != null ? `${formatInt(dm.observed)} streams × $0.00092` : "Sin datos de campaña"}
+          </div>
+        </div>
+
+        {/* Revenue Neto */}
+        <div style={{ background: T.panel, border: `1px solid ${T.border}`, borderRadius: 8, padding: "20px 24px" }}>
+          <div style={{ fontSize: 12, color: T.muted, marginBottom: 10 }}>Revenue Neto (post-comisiones)</div>
+          <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 38, fontWeight: 500, color: A.pos, lineHeight: 1 }}>
+            {formatUSD(wf.revenueNeto)}
+          </div>
+          <div style={{ fontSize: 12, color: T.muted, marginTop: 8 }}>Comisión Spotify {formatUSD(wf.comision)}</div>
+        </div>
+      </div>
+
+      {/* Waterfall + Fuente */}
+      <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 16 }}>
+        <div style={{ background: T.panel, border: `1px solid ${T.border}`, borderRadius: 8, padding: "20px 24px" }}>
+          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 18 }}>Waterfall de Revenue</div>
+          <WaterfallBars color={A.pos} negColor={A.warn} items={[
+            { label: "Revenue Bruto Incremental",                value: wf.revenueBruto, max: wf.revenueBruto || 1 },
+            { label: "Inc. Algorítmico",                         value: wf.incAlg,        max: wf.revenueBruto || 1 },
+            { label: "Inc. Orgánico",                            value: wf.incOrg,        max: wf.revenueBruto || 1 },
+            { label: "Comisión (streams algo × 30%)",            value: -wf.comision,     max: wf.revenueBruto || 1, muted: true },
+            { label: "Revenue Neto DM",                          value: wf.revenueNeto,   max: wf.revenueBruto || 1 },
+          ]} />
+          <div style={{ marginTop: 14, padding: "10px 14px", background: `${A.dm}11`, border: `1px solid ${A.dm}33`, borderRadius: 6, fontSize: 11.5, color: T.fgSoft, lineHeight: 1.5 }}>
+            <span style={{ color: A.dm, marginRight: 6 }}>ⓘ</span>
+            Comisión 30% aplica a todos los streams algorítmicos. Canibalización ocurre cuando el algo crece a costa del total orgánico.
+          </div>
+        </div>
+        <div style={{ background: T.panel, border: `1px solid ${T.border}`, borderRadius: 8, padding: "20px 24px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 18 }}>
+            <div style={{ fontSize: 14, fontWeight: 600 }}>Fuente de Streams</div>
+            <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 10.5, color: T.muted }}>Durante campaña DM</div>
+          </div>
+          {[
+            { label: "Algorítmico", pct: wf.algShare, color: A.dm },
+            { label: "Orgánico",    pct: wf.orgShare, color: A.org },
+          ].map(bar => (
+            <div key={bar.label} style={{ marginBottom: 22 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6, fontSize: 13 }}>
+                <span>{bar.label}</span>
+                <span style={{ fontFamily: "IBM Plex Mono, monospace", color: bar.color }}>{bar.pct}%</span>
+              </div>
+              <div style={{ height: 10, background: "rgba(255,255,255,0.06)", borderRadius: 3, overflow: "hidden" }}>
+                <div style={{ width: bar.pct + "%", height: "100%", background: bar.color }} />
+              </div>
+            </div>
+          ))}
+          <div style={{ padding: "12px 14px", background: T.panel2, borderRadius: 6, fontFamily: "IBM Plex Mono, monospace", fontSize: 11.5 }}>
             {[
-              {phase:"En DM (ref.)", org:dm.dmOrgAvg, algo:dm.campAlgoAvg, color:"#a855f7"},
-              {phase:"Post-DM",      org:dm.postDmOrgAvg, algo:dm.postDmAlgoAvg, color:"#10b981"},
-            ].map(row=>{
-              const total=(row.org??0)+(row.algo??0);
-              const orgPct=total>0?Math.round(((row.org??0)/total)*100):0;
-              const algoPct=100-orgPct;
+              { label: "Total streams campaña", value: dm?.observed != null ? formatInt(dm.observed) : "—", color: T.fg },
+              { label: "Algorítmicos",          value: dm?.campProgObs != null ? formatInt(dm.campProgObs) : "—", color: A.dm },
+              { label: "Orgánicos",             value: dm?.campOrgObs  != null ? formatInt(dm.campOrgObs)  : "—", color: A.org },
+            ].map(row => (
+              <div key={row.label} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", borderBottom: `1px solid ${T.border}` }}>
+                <span style={{ color: T.muted }}>{row.label}</span>
+                <span style={{ color: row.color, fontWeight: 500 }}>{row.value}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Pre-DM vs En-DM */}
+      {dm && (dm.preDmAlgoAvg || dm.campAlgoAvg) ? (
+        <div style={{ background: T.panel, border: `1px solid ${T.border}`, borderRadius: 8, padding: "20px 24px" }}>
+          <div style={{ marginBottom: 4, fontSize: 14, fontWeight: 600 }}>Impacto Algorítmico — Pre-DM vs En DM</div>
+          <div style={{ fontSize: 11.5, color: T.muted, marginBottom: 20 }}>Comparación de streams algorítmicos entre el período previo y durante Discovery Mode</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 32 }}>
+            {[
+              { label: "Pre-DM", algo: dm.preDmAlgoAvg ?? 0, org: dm.preDmOrgAvg ?? 0, highlight: false },
+              { label: "En DM",  algo: dm.campAlgoAvg  ?? 0, org: dm.dmOrgAvg   ?? 0, highlight: true  },
+            ].map(block => {
+              const sum = block.algo + block.org || 1;
+              const orgW = (block.org / sum) * 100;
+              const algW = (block.algo / sum) * 100;
               return (
-                <div key={row.phase}>
-                  <div className="flex justify-between text-xs mb-1">
-                    <span className="text-slate-400">{row.phase}</span>
-                    <span className="text-white font-bold">{fmt.exact(total)}/día</span>
+                <div key={block.label} style={{ padding: block.highlight ? 16 : 0, background: block.highlight ? `${A.dm}08` : "transparent", borderRadius: 6, border: block.highlight ? `1px solid ${A.dm}33` : "1px solid transparent" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, fontSize: 12.5 }}>
+                    <span style={{ color: T.fgSoft }}>{block.label} (promedio diario)</span>
+                    <span style={{ fontFamily: "IBM Plex Mono, monospace", color: T.muted, fontSize: 11 }}>{formatInt(block.algo + block.org)}/día</span>
                   </div>
-                  <div className="flex h-5 rounded-full overflow-hidden bg-slate-800">
-                    <div className="flex items-center justify-center text-[9px] font-bold text-white" style={{width:`${orgPct}%`,background:"#10b981"}}>{orgPct>8?`${orgPct}%`:""}</div>
-                    <div className="flex items-center justify-center text-[9px] font-bold text-white" style={{width:`${algoPct}%`,background:"#f97316"}}>{algoPct>8?`${algoPct}%`:""}</div>
-                  </div>
-                  <div className="flex justify-between text-[10px] mt-0.5">
-                    <span className="text-cyan-500">{fmt.exact(row.org??0)} org</span>
-                    <span className="text-orange-400">{fmt.exact(row.algo??0)} algo</span>
+                  <div style={{ height: 20, display: "flex", borderRadius: 3, overflow: "hidden", marginBottom: 10 }}>
+                    <div style={{ width: orgW + "%", background: A.org, display: "flex", alignItems: "center", paddingLeft: 8, fontFamily: "IBM Plex Mono, monospace", fontSize: 10, color: "#0b0f14", fontWeight: 600 }}>
+                      {orgW > 15 ? fmtK(block.org) : ""}
+                    </div>
+                    <div style={{ width: algW + "%", background: A.dm, display: "flex", alignItems: "center", paddingLeft: 8, fontFamily: "IBM Plex Mono, monospace", fontSize: 10, color: "#0b0f14", fontWeight: 600 }}>
+                      {algW > 15 ? fmtK(block.algo) : ""}
+                    </div>
                   </div>
                 </div>
               );
             })}
           </div>
-          {dm.orgConversion != null && (
-            <div className={`mt-4 border rounded-xl px-4 py-3 text-xs leading-relaxed ${
-              dm.orgConversion>=10?"bg-emerald-500/8 border-emerald-500/20 text-emerald-300"
-              :dm.orgConversion>=-5?"bg-amber-500/8 border-amber-500/20 text-amber-300"
-              :"bg-rose-500/8 border-rose-500/20 text-rose-300"}`}>
-              {dm.orgConversion>=10?<><span className="font-bold mr-1">✓</span>Orgánico post-DM creció <strong>+{dm.orgConversion}%</strong> vs referencia DM.</>
-              :dm.orgConversion>=-5?<><span className="font-bold mr-1">~</span>Orgánico post-DM estable ({dm.orgConversion>0?"+":""}{dm.orgConversion}%).</>
-              :<><span className="font-bold mr-1">↓</span>Orgánico post-DM cayó <strong>{dm.orgConversion}%</strong>. DM no logró convertir oyentes.</>}
-            </div>
-          )}
         </div>
-        {/* Chart */}
-        <div className="bg-slate-900 rounded-xl border border-slate-800 p-5">
-          <h3 className="text-sm font-semibold text-slate-200 mb-1">Evolución Post-DM</h3>
-          <p className="text-xs text-slate-500 mb-4">Streams reales vs Piso Orgánico estimado</p>
-          <ResponsiveContainer width="100%" height={180}>
-            <ComposedChart data={postChartData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-              <XAxis dataKey="label" tick={{fontSize:9,fill:"#64748b"}} axisLine={false} tickLine={false} interval={Math.max(1,Math.floor(postChartData.length/7))} />
-              <YAxis tickFormatter={fmt.k} tick={{fontSize:9,fill:"#64748b"}} axisLine={false} tickLine={false} />
-              <Tooltip content={<ChartTooltip />} />
-              <Legend wrapperStyle={{fontSize:"11px"}} />
-              <Area dataKey="Piso Orgánico" fill="#06b6d4" fillOpacity={0.12} stroke="#06b6d4" strokeWidth={1.5} strokeDasharray="4 4" />
-              <Line dataKey="Streams Reales" stroke="#10b981" strokeWidth={2} dot={false} />
-            </ComposedChart>
-          </ResponsiveContainer>
-        </div>
+      ) : null}
+    </div>
+  );
+}
 
-        {/* ── P&L: ¿convino salir de DM? ── */}
-        {dm.dmCommPerDay > 0 && (() => {
-          const daysOut = postDmSlice.length;
-          const totalCommSaved  = +(dm.dmCommPerDay * daysOut).toFixed(2);
-          const totalRevLost    = +(Math.max(0, dm.revLostPerDay) * daysOut).toFixed(2);
-          const totalNetBalance = +(totalCommSaved - totalRevLost).toFixed(2);
-          const algoFullRev     = +(dm.campAlgoAvg * track.royalty * daysOut).toFixed(2);
-          const monthlyFactor   = daysOut > 0 ? 30 / daysOut : 1;
-          const monthlyBalance  = +(totalNetBalance * monthlyFactor).toFixed(2);
-          const verdict =
-            totalNetBalance > 0
-              ? {color:"emerald", icon:"✓ SALIR CONVINO",
-                 text:`Ahorraste $${totalCommSaved} en comisiones. La caída de streams costó $${totalRevLost}. Balance neto positivo: +$${totalNetBalance}.`}
-              : dm.postDmNetBalance > -0.001
-              ? {color:"amber", icon:"~ MONITOREAR",
-                 text:`El balance diario es positivo (+$${dm.postDmNetBalance.toFixed(4)}/día) pero los streams muestran caída (${dm.postDmDelta}%). Monitorear las próximas 2–4 semanas.`}
-              : {color:"rose", icon:"↻ CONSIDERAR REINGRESO",
-                 text:`El track pierde más revenue por streams caídos ($${Math.abs(dm.revLostPerDay).toFixed(4)}/día) de lo que ahorra en comisión ($${dm.dmCommPerDay.toFixed(4)}/día).${dm.postDmBreakeven?` Breakeven negativo en ~${dm.postDmBreakeven} días.`:""} Evaluar reingreso a DM.`};
-          const cv = {emerald:"bg-emerald-500/10 border-emerald-500/25 text-emerald-200",amber:"bg-amber-500/10 border-amber-500/25 text-amber-200",rose:"bg-rose-500/10 border-rose-500/25 text-rose-200"};
+// ════════════════════════════════════════════════════════════════
+//  PERFORMANCE VIEW
+// ════════════════════════════════════════════════════════════════
+function PerformanceView({ T, A, monthly = [], tracks = [] }) {
+  const totalStreams = monthly.reduce((a, m) => a + (m.streamsTotal ?? 0), 0);
+  const totalRev     = monthly.reduce((a, m) => a + (m.revenueNeto ?? 0), 0);
+  const totalDMLift  = monthly.length > 0
+    ? monthly.reduce((a, m) => a + (m.liftDM ?? 0), 0) / monthly.length : 0;
+
+  const lastMonth = monthly[monthly.length - 1];
+  const prevMonth = monthly[monthly.length - 2];
+  const streamsDelta = prevMonth?.streamsTotal > 0
+    ? ((lastMonth?.streamsTotal - prevMonth?.streamsTotal) / prevMonth?.streamsTotal) * 100 : 0;
+  const revDelta = prevMonth?.revenueNeto > 0
+    ? ((lastMonth?.revenueNeto - prevMonth?.revenueNeto) / prevMonth?.revenueNeto) * 100 : 0;
+  const dmTracks = tracks.filter(t => t.displayStatus === "dm_active").length;
+
+  return (
+    <div style={{ padding: "20px 24px 40px", display: "grid", gap: 16 }}>
+      <div>
+        <div style={{ fontSize: 18, fontWeight: 600, marginBottom: 4 }}>Performance Mensual</div>
+        <div style={{ fontSize: 12, color: T.muted }}>Catálogo completo · streams, lift DM, revenue y ROI por mes</div>
+      </div>
+
+      {/* KPI cards */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16 }}>
+        {[
+          { label: "Streams este mes", value: fmtK(lastMonth?.streamsTotal ?? 0), delta: formatPct(streamsDelta), alt: `${dmTracks} tracks DM activos`, color: A.pos },
+          { label: "Lift DM promedio",  value: formatPct(totalDMLift), delta: null, alt: `${monthly.length} meses`, color: A.dm },
+          { label: "Revenue neto DM",   value: formatUSD(totalRev), delta: formatPct(revDelta), alt: `${monthly.length} meses acumulado`, color: (revDelta >= 0 ? A.pos : A.warn) },
+          { label: "ROI campañas",      value: "Sin gasto", delta: null, alt: "orgánico puro, sin inversión", color: T.fg },
+        ].map(k => (
+          <div key={k.label} style={{ background: T.panel, border: `1px solid ${T.border}`, borderRadius: 8, padding: "18px 20px" }}>
+            <div style={{ fontSize: 12, color: T.muted, marginBottom: 10 }}>{k.label}</div>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+              <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 26, fontWeight: 500, color: k.color }}>{k.value}</div>
+              {k.delta && <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 12, color: k.delta.startsWith("+") ? A.pos : A.warn }}>{k.delta}</div>}
+            </div>
+            {k.alt && <div style={{ fontSize: 11, color: T.muted, marginTop: 6 }}>{k.alt}</div>}
+          </div>
+        ))}
+      </div>
+
+      {/* Chart */}
+      <div style={{ background: T.panel, border: `1px solid ${T.border}`, borderRadius: 8, padding: "20px 24px" }}>
+        <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 18, color: T.fgSoft }}>Streams totales — Orgánico vs. Lift DM</div>
+        <div style={{ color: T.fgSoft }}>
+          <MonthlyBars data={monthly} orgColor={A.org} dmColor={A.dm} revColor={A.rev} height={220} />
+        </div>
+        <div style={{ display: "flex", gap: 24, justifyContent: "center", marginTop: 12, fontFamily: "IBM Plex Mono, monospace", fontSize: 11, color: T.muted }}>
+          <LegendItem color={A.org} label="Streams Orgánicos" />
+          <LegendItem color={A.dm}  label="Lift DM" />
+          <LegendItem color={A.rev} label="Revenue Neto" />
+        </div>
+      </div>
+
+      {/* Table */}
+      <div style={{ background: T.panel, border: `1px solid ${T.border}`, borderRadius: 8, overflow: "hidden" }}>
+        <div style={{ padding: "18px 24px 12px" }}>
+          <div style={{ fontSize: 14, fontWeight: 600 }}>Detalle por mes</div>
+          <div style={{ fontSize: 11.5, color: T.muted, marginTop: 2 }}>Click para ver breakdown por track</div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1.3fr 0.9fr 0.8fr 0.9fr 1.1fr 0.9fr 0.8fr", padding: "10px 24px", borderTop: `1px solid ${T.border}`, borderBottom: `1px solid ${T.border}`, fontSize: 10.5, color: T.muted, fontFamily: "IBM Plex Mono, monospace", letterSpacing: "0.08em" }}>
+          <div>MES</div><div>STREAMS</div><div>MoM</div><div>TRACKS DM</div><div>LIFT DM</div><div>REVENUE NETO</div><div>EFICIENCIA</div><div>ROI</div>
+        </div>
+        {monthly.map((m, i) => {
+          const mom = i > 0 ? ((m.streamsTotal - monthly[i-1].streamsTotal) / Math.max(monthly[i-1].streamsTotal, 1)) * 100 : 0;
           return (
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <DollarSign size={14} className="text-emerald-400" />
-                <h3 className="text-sm font-semibold text-slate-200">Análisis Financiero — ¿Convino salir de DM?</h3>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-2">
-                  {[
-                    {label:"Comisión ahorrada (30% algo streams)",
-                     value:totalCommSaved, color:"text-emerald-400", sign:"+$",
-                     tip:`${fmt.exact(dm.campAlgoAvg)} algo/día × $${track.royalty} × 30% × ${daysOut}d`},
-                    {label:"Revenue perdido por caída de streams",
-                     value:totalRevLost, color:totalRevLost>0?"text-rose-400":"text-emerald-400",
-                     sign:totalRevLost>0?"-$":"+$",
-                     tip:`${fmt.exact(dm.streamsLostPerDay)} streams/día menos × $${track.royalty} × ${daysOut}d`},
-                    {label:"Balance neto acumulado",
-                     value:Math.abs(totalNetBalance), color:totalNetBalance>=0?"text-emerald-400":"text-rose-400",
-                     sign:totalNetBalance>=0?"+$":"-$",
-                     tip:`Proyección mensual: ${monthlyBalance>=0?"+$":"-$"}${Math.abs(monthlyBalance)}/mes`},
-                  ].map(row=>(
-                    <div key={row.label}>
-                      <div className="flex justify-between items-start mb-0.5">
-                        <span className="text-[10px] text-slate-500 leading-tight pr-2">{row.label}</span>
-                        <span className={`text-sm font-black whitespace-nowrap ${row.color}`}>{row.sign}{row.value}</span>
-                      </div>
-                      <p className="text-[9px] text-slate-700">{row.tip}</p>
-                      {row.label.includes("Balance") && (
-                        <div className="mt-1 h-1.5 rounded-full bg-slate-800">
-                          <div className="h-full rounded-full transition-all"
-                            style={{
-                              width:`${Math.min(100,Math.abs(totalNetBalance)/(Math.max(totalCommSaved,totalRevLost)||1)*100)}%`,
-                              background: totalNetBalance>=0?"#10b981":"#f43f5e"
-                            }} />
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-                <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3">
-                  <p className="text-xs font-semibold text-slate-400">Conversión algo → orgánico</p>
-                  {[
-                    {label:"Algo streams (en DM)", value:fmt.exact(dm.campAlgoAvg)+"/día", color:"text-orange-400"},
-                    {label:"Org streams (post-DM)", value:fmt.exact(dm.postDmOrgAvg)+"/día", color:"text-emerald-400"},
-                    {label:"Conversión", value:dm.orgConversion!=null?(dm.orgConversion>0?"+":"")+dm.orgConversion+"%":"—",
-                     color:dm.orgConversion==null?"text-slate-500":dm.orgConversion>=10?"text-emerald-400":dm.orgConversion>=-5?"text-amber-400":"text-rose-400"},
-                  ].map(row=>(
-                    <div key={row.label} className="flex justify-between text-xs">
-                      <span className="text-slate-500">{row.label}</span>
-                      <span className={`font-bold ${row.color}`}>{row.value}</span>
-                    </div>
-                  ))}
-                  <p className="text-[10px] text-slate-500 pt-1 border-t border-slate-800 leading-relaxed">
-                    {dm.orgConversion>=10?"✓ Los oyentes algo se convirtieron a orgánicos.":
-                     dm.orgConversion>=-5?"~ Conversión neutral — los oyentes algo no se quedan.":
-                     "↓ Los oyentes algo no convirtieron a orgánico."}
-                  </p>
-                </div>
-              </div>
-              {dm.postDmBreakeven != null && (
-                <div className="bg-rose-500/8 border border-rose-500/20 rounded-lg p-3">
-                  <p className="text-xs text-rose-300 leading-relaxed">
-                    <AlertTriangle size={11} className="inline mr-1" />
-                    La pérdida acumulada supera el ahorro en <strong>{dm.postDmBreakeven} días</strong> desde la salida. Considerar reingresar a DM.
-                  </p>
-                </div>
-              )}
-              <div className={`border-2 rounded-xl px-5 py-4 ${cv[verdict.color]}`}>
-                <p className="text-xs font-black tracking-wider mb-1">{verdict.icon}</p>
-                <p className="text-xs leading-relaxed">{verdict.text}</p>
-              </div>
+            <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 1.3fr 0.9fr 0.8fr 0.9fr 1.1fr 0.9fr 0.8fr", padding: "12px 24px", borderBottom: `1px solid ${T.border}`, fontSize: 12.5, alignItems: "center" }}>
+              <div style={{ color: T.fg }}>{m.month}</div>
+              <div style={{ fontFamily: "IBM Plex Mono, monospace" }}>{fmtK(m.streamsTotal)}</div>
+              <div style={{ fontFamily: "IBM Plex Mono, monospace", color: mom >= 0 ? A.pos : A.warn }}>{formatPct(mom)}</div>
+              <div style={{ fontFamily: "IBM Plex Mono, monospace", color: T.fgSoft }}>{m.tracksDM}</div>
+              <div style={{ fontFamily: "IBM Plex Mono, monospace", color: (m.liftDM ?? 0) >= 0 ? A.pos : A.warn }}>{formatPct(m.liftDM ?? 0)}</div>
+              <div style={{ fontFamily: "IBM Plex Mono, monospace" }}>{formatUSD(m.revenueNeto)}</div>
+              <div style={{ fontFamily: "IBM Plex Mono, monospace", color: T.fgSoft }}>{m.efficiency ?? "—"}</div>
+              <div style={{ fontFamily: "IBM Plex Mono, monospace", color: T.muted }}>—</div>
             </div>
           );
-        })()}
-      </div>
-    );
-  }
-
-  return (
-    <div className="p-5 space-y-4">
-      <div className="grid grid-cols-4 gap-4">
-        <div className="col-span-2 bg-gradient-to-br from-purple-900/30 to-slate-900 border border-purple-500/20 rounded-xl p-5">
-          <p className="text-xs text-slate-400 mb-1">Lift Observado DM</p>
-          <p className={`text-5xl font-black ${CV[liftC].text}`}>{dm.liftPct!=null?(dm.liftPct>0?"+":"")+dm.liftPct+"%":"—"}</p>
-          <p className="text-xs text-slate-400 mt-1">
-            En DM desde: {dmStart===0 ? "Antes de Mar 2025 (sin fecha exacta)" : (history[dmStart]?.label ?? "—")}
-            {dmPauseIdx!=null&&<span className="text-amber-400 ml-1">· Pausa: {history[dmPauseIdx]?.label ?? "—"}</span>}
-            {dmResumeIdx!=null&&<span className="text-cyan-400 ml-1">· Retoma: {history[dmResumeIdx]?.label ?? "—"}</span>}
-            {status==="completed" && endDateStr && <span className="text-amber-400 ml-2">· Fin: {endDateStr}</span>}
-          </p>
-          <p className="text-xs text-slate-500 mt-2">{dm.noBaseline ? "Sin datos pre-DM — baseline no calculable" : "Streams Reales vs Baseline EWLS Orgánico"}</p>
-          <div className="flex gap-4 mt-4 flex-wrap">
-            {[
-              ["Observado",fmt.exact(dm.observed),"text-white"],
-              ["Baseline",dm.noBaseline?"—":fmt.exact(dm.baseline),"text-purple-300"],
-              ["Incremental",dm.noBaseline?"—":`${(dm.incremental??0)>=0?"+":""}${fmt.exact(dm.incremental)}`,(dm.incremental??0)>=0?"text-emerald-400":"text-rose-400"],
-            ].map(([l,v,c])=>(
-              <div key={l}><p className="text-xs text-slate-500">{l}</p><p className={`text-sm font-bold ${c}`}>{v}</p></div>
-            ))}
+        })}
+        {monthly.length === 0 && (
+          <div style={{ padding: "40px 24px", textAlign: "center", color: T.muted, fontSize: 13 }}>
+            Sin datos mensuales disponibles
           </div>
-          <div className="flex gap-4 mt-3 flex-wrap border-t border-slate-700/50 pt-3">
-            {[
-              ["Algo Total",fmt.exact(dm.campProgObs),"text-orange-300"],
-              ["Org Total",fmt.exact(dm.campOrgObs),"text-cyan-300"],
-              ["% Algo",`${((dm.algoRatio??0)*100).toFixed(1)}%`,"text-orange-400"],
-            ].map(([l,v,c])=>(
-              <div key={l}><p className="text-xs text-slate-500">{l}</p><p className={`text-sm font-bold ${c}`}>{v}</p></div>
-            ))}
-            <div>
-              <p className="text-xs text-slate-500">Algo/día Pre-DM</p>
-              <p className="text-sm font-bold text-slate-300">{fmt.exact(dm.preDmAlgoAvg??0)}</p>
-            </div>
-            <div>
-              <p className="text-xs text-slate-500">Algo/día En DM</p>
-              <p className="text-sm font-bold text-orange-300">{fmt.exact(dm.campAlgoAvg??0)}</p>
-            </div>
-            <div>
-              <p className="text-xs text-slate-500">Cambio Algo</p>
-              <p className={`text-sm font-bold ${(dm.algoDelta??0)>0?"text-emerald-400":(dm.algoDelta??0)<0?"text-rose-400":"text-slate-400"}`}>
-                {dm.algoDelta!=null?`${dm.algoDelta>0?"+":""}${dm.algoDelta}%`:"—"}
-                <span className="text-xs ml-1 opacity-70">({dm.algoDeltaAbs!=null?(dm.algoDeltaAbs>0?"+":"")+fmt.exact(dm.algoDeltaAbs):"—"}/d)</span>
-              </p>
-            </div>
-          </div>
-        </div>
-        <StatCard label="Revenue Bruto Incremental" value={dm.noBaseline?"—":fmt.usd(dm.gross)} sub={dm.noBaseline?"Sin datos pre-DM":`${fmt.k(dm.incremental)} streams × $${track.royalty}/stream`} color="emerald" icon={DollarSign} />
-        <StatCard label="Revenue Neto (post-comisión)" value={dm.noBaseline?"—":fmt.usd(dm.net)} sub={dm.noBaseline?"Sin datos pre-DM":`Comisión Spotify: ${fmt.usd(dm.commission)}`} color={dm.net!=null&&dm.net>0?"emerald":"rose"} icon={TrendingUp} />
-      </div>
-      {dm.pausedDays > 0 && (
-        <div className="flex items-center gap-3 bg-amber-500/8 border border-amber-500/25 rounded-xl px-5 py-3">
-          <span className="text-amber-400 text-base">⏸</span>
-          <div className="flex-1 min-w-0">
-            <span className="text-sm font-semibold text-amber-300">Pausa DM: {dm.pausedDays} días</span>
-            <span className="text-xs text-amber-500/80 ml-2">
-              {history[dmPauseIdx]?.label ?? "—"} → {history[dmResumeIdx]?.label ?? "—"}
-            </span>
-          </div>
-          <div className="text-xs text-amber-600 whitespace-nowrap">
-            {fmt.k(dm.pausedStreams)} streams durante pausa (excluidos del cálculo DM)
-          </div>
-        </div>
-      )}
-      <div className="grid grid-cols-2 gap-4">
-        <div className="bg-slate-900 rounded-xl border border-slate-800 p-5">
-          <h3 className="text-sm font-semibold text-slate-200 mb-4">Waterfall de Revenue</h3>
-          <div className="space-y-2">
-            {[
-              {label:"Revenue Bruto Incremental",value:dm.gross,color:(dm.gross??0)>=0?"text-emerald-400":"text-rose-400",sign:(dm.gross??0)>=0?"+":"−"},
-              {label:`  Inc. Algorítmico (${Math.round((dm.algoRatio??0)*100)}%)`,value:dm.algoGross,color:(dm.algoGross??0)>=0?"text-orange-400":"text-rose-400",sign:(dm.algoGross??0)>=0?"+":"−",sub:true},
-              {label:`  Inc. Orgánico (${100-Math.round((dm.algoRatio??0)*100)}%)`,value:dm.orgGross,color:(dm.orgGross??0)>=0?"text-cyan-400":"text-rose-400",sign:(dm.orgGross??0)>=0?"+":"−",sub:true},
-              {label:`Comisión sobre streams algorítmicos (${commEff.toFixed(1)}% × 30%)`,value:dm.commission,color:"text-rose-400",sign:"−"},
-              ...(dm.cannibalized > 0 ? [{
-                label:`Canibalización: ${fmt.exact(dm.cannibalized)} streams org→algo sin crecimiento total`,
-                value:dm.cannibalizationCost,color:"text-amber-400",sign:"−",cannibal:true,
-              }] : []),
-              {label:"Revenue Neto DM",value:dm.net,color:(dm.net??0)>=0?"text-emerald-400":"text-rose-400",sign:(dm.net??0)>=0?"+":"−",border:true},
-            ].filter(r=>!r.sub||!dm.noBaseline).map(row=>(
-              <div key={row.label} className={`flex items-center justify-between p-3 rounded-lg ${row.border?"bg-slate-800 border border-slate-700":row.cannibal?"bg-amber-500/5 border border-amber-500/15":"bg-slate-800/40"}`}>
-                <span className="text-xs text-slate-300">{row.border&&<CheckCircle size={11} className="inline mr-1 text-emerald-400" />}{row.cannibal&&<AlertTriangle size={11} className="inline mr-1 text-amber-400" />}{row.label}</span>
-                <span className={`text-sm font-bold ${row.color}`}>{row.sign}{fmt.usd(row.value)}</span>
-              </div>
-            ))}
-          </div>
-          <div className="mt-3 bg-slate-800/60 border border-slate-700/50 rounded-lg p-3">
-            <p className="text-xs text-slate-400 leading-relaxed">
-              <AlertTriangle size={11} className="inline mr-1 text-amber-400" />
-              Comisión 30% aplica a <strong className="text-orange-400">todos los streams algorítmicos</strong> ({fmt.exact(dm.campProgObs)} streams × ${track.royalty}/stream × 30%). Canibalización ocurre cuando el algo crece pero el total no aumenta (oyentes redirigidos de orgánico a canal pago).
-            </p>
-          </div>
-        </div>
-        <div className="bg-slate-900 rounded-xl border border-slate-800 p-5">
-          <h3 className="text-sm font-semibold text-slate-200 mb-1">Fuente de Streams</h3>
-          <p className="text-xs text-slate-500 mb-4">Durante la campaña DM — datos reales S4A</p>
-          {(() => {
-            const algoP = Math.round((dm.algoRatio??0)*100);
-            const orgP  = 100 - algoP;
-            const realSrc = [
-              {name:"Algorítmico (programado)",value:algoP,color:"#f97316"},
-              {name:"Orgánico",value:orgP,color:"#10b981"},
-            ];
-            return (
-              <div className="space-y-4">
-                {realSrc.map(s=>(
-                  <div key={s.name}>
-                    <div className="flex justify-between text-xs mb-1.5"><span className="text-slate-400">{s.name}</span><span className="font-bold text-white">{s.value}%</span></div>
-                    <div className="w-full bg-slate-800 rounded-full h-2">
-                      <div className="h-2 rounded-full" style={{width:`${s.value}%`,background:s.color}} />
-                    </div>
-                  </div>
-                ))}
-                <div className="mt-2 p-3 bg-slate-800 rounded-xl border border-slate-700 space-y-1">
-                  <div className="flex justify-between items-center">
-                    <span className="text-xs text-slate-400">Total streams campaña</span>
-                    <span className="text-sm font-bold text-white">{fmt.k(dm.observed)}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-xs text-orange-400">Algorítmico</span>
-                    <span className="text-sm font-bold text-orange-300">{fmt.k(dm.campProgObs)}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-xs text-cyan-400">Orgánico</span>
-                    <span className="text-sm font-bold text-cyan-300">{fmt.k(dm.campOrgObs)}</span>
-                  </div>
-                </div>
-              </div>
-            );
-          })()}
-        </div>
-      </div>
-      {/* ── Análisis visual: cambio algorítmico Pre-DM vs En DM ── */}
-      <div className="bg-slate-900 rounded-xl border border-slate-800 p-5">
-        <h3 className="text-sm font-semibold text-slate-200 mb-1">Impacto Algorítmico — Pre-DM vs En DM</h3>
-        <p className="text-xs text-slate-500 mb-4">Comparación de streams algorítmicos/día antes y durante Discovery Mode</p>
-        {(() => {
-          const pre = dm.preDmAlgoAvg ?? 0;
-          const dur = dm.campAlgoAvg ?? 0;
-          const maxVal = Math.max(pre, dur, 1);
-          const delta = dm.algoDelta;
-          const preOrgAvg = pre > 0 && history?.length && (dmStart ?? 0) > 0
-            ? Math.round(history.slice(Math.max(0, dmStart - 30), dmStart).reduce((s,d) => s + d.streams - (d.programmedStreams??0), 0) / Math.min(30, dmStart))
-            : 0;
-          const durOrgAvg = dur > 0 && dm.campOrgObs != null && dm.observed != null
-            ? Math.round((dm.observed - dm.campProgObs) / (history.slice(dmStart, dmEnd ?? history.length).length || 1))
-            : 0;
-          const maxTotal = Math.max(pre + preOrgAvg, dur + durOrgAvg, 1);
-          return (
-            <div className="space-y-5">
-              <div className="grid grid-cols-2 gap-6">
-                {/* Pre-DM bar */}
-                <div>
-                  <p className="text-xs text-slate-400 mb-2">Pre-DM (30 días antes)</p>
-                  <div className="space-y-1.5">
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1 bg-slate-800 rounded-full h-6 overflow-hidden flex">
-                        <div className="h-6 bg-orange-500/80 rounded-l-full flex items-center justify-end pr-1.5" style={{width:`${(pre/maxTotal)*100}%`,minWidth:pre>0?"20px":"0"}}>
-                          {pre>0&&<span className="text-xs text-white font-bold">{fmt.k(pre)}</span>}
-                        </div>
-                        <div className="h-6 bg-cyan-500/50 flex items-center justify-end pr-1.5" style={{width:`${(preOrgAvg/maxTotal)*100}%`,minWidth:preOrgAvg>0?"20px":"0"}}>
-                          {preOrgAvg>0&&<span className="text-xs text-white font-bold">{fmt.k(preOrgAvg)}</span>}
-                        </div>
-                      </div>
-                    </div>
-                    <p className="text-xs text-slate-500">Total: {fmt.k(pre + preOrgAvg)}/día</p>
-                  </div>
-                </div>
-                {/* En DM bar */}
-                <div>
-                  <p className="text-xs text-slate-400 mb-2">En DM (campaña activa)</p>
-                  <div className="space-y-1.5">
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1 bg-slate-800 rounded-full h-6 overflow-hidden flex">
-                        <div className="h-6 bg-orange-500/80 rounded-l-full flex items-center justify-end pr-1.5" style={{width:`${(dur/maxTotal)*100}%`,minWidth:dur>0?"20px":"0"}}>
-                          {dur>0&&<span className="text-xs text-white font-bold">{fmt.k(dur)}</span>}
-                        </div>
-                        <div className="h-6 bg-cyan-500/50 flex items-center justify-end pr-1.5" style={{width:`${(durOrgAvg/maxTotal)*100}%`,minWidth:durOrgAvg>0?"20px":"0"}}>
-                          {durOrgAvg>0&&<span className="text-xs text-white font-bold">{fmt.k(durOrgAvg)}</span>}
-                        </div>
-                      </div>
-                    </div>
-                    <p className="text-xs text-slate-500">Total: {fmt.k(dur + durOrgAvg)}/día</p>
-                  </div>
-                </div>
-              </div>
-              {/* Delta summary */}
-              <div className="flex items-center gap-4 bg-slate-800/60 rounded-xl p-4 border border-slate-700/50">
-                <div className={`text-3xl font-black ${(delta??0)>0?"text-emerald-400":(delta??0)<0?"text-rose-400":"text-slate-400"}`}>
-                  {delta!=null?`${delta>0?"+":""}${delta}%`:"—"}
-                </div>
-                <div className="flex-1">
-                  <p className="text-sm text-slate-200 font-medium">Cambio en streams algorítmicos</p>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    {pre>0&&dur>0?`De ${fmt.k(pre)}/día a ${fmt.k(dur)}/día (${dm.algoDeltaAbs!=null?(dm.algoDeltaAbs>0?"+":"")+fmt.k(dm.algoDeltaAbs):"—"}/día)`:"Sin datos pre-DM suficientes"}
-                  </p>
-                </div>
-                <div className="flex gap-3 text-xs">
-                  <div className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-orange-500/80 inline-block" /><span className="text-slate-400">Algo</span></div>
-                  <div className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-cyan-500/50 inline-block" /><span className="text-slate-400">Orgánico</span></div>
-                </div>
-              </div>
-            </div>
-          );
-        })()}
-      </div>
-      <div className="bg-slate-900 rounded-xl border border-slate-800 p-5">
-        <h3 className="text-sm font-semibold text-slate-200 mb-1">Visualización del Lift</h3>
-        <p className="text-xs text-slate-500 mb-4">Streams reales vs baseline orgánico — área sombreada = impacto incremental DM</p>
-        <ResponsiveContainer width="100%" height={200}>
-          <ComposedChart data={liftData}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-            <XAxis dataKey="label" tick={{fontSize:9,fill:"#64748b"}} axisLine={false} tickLine={false} interval={Math.floor(liftData.length/6)} />
-            <YAxis tickFormatter={fmt.k} tick={{fontSize:9,fill:"#64748b"}} axisLine={false} tickLine={false} />
-            <Tooltip content={<ChartTooltip />} />
-            <Legend wrapperStyle={{fontSize:"11px"}} />
-            <Area dataKey="Baseline Orgánico" fill="#a855f7" fillOpacity={0.15} stroke="#a855f7" strokeWidth={1.5} strokeDasharray="5 3" />
-            <Area dataKey="Streams Reales" fill="#10b981" fillOpacity={0.2} stroke="#10b981" strokeWidth={2} />
-            {dmStart!=null&&dmStart>0&&<ReferenceLine x={history[dmStart]?.label} stroke="#a855f7" strokeWidth={1.5} strokeDasharray="4 4"
-              label={{value:"DM ▶",fontSize:10,fill:"#a855f7",position:"top"}} />}
-            {dmPauseIdx!=null&&history[dmPauseIdx]&&<ReferenceLine x={history[dmPauseIdx]?.label} stroke="#f59e0b" strokeWidth={1.5} strokeDasharray="4 4"
-              label={{value:"⏸ Pausa",fontSize:9,fill:"#f59e0b",position:"top"}} />}
-            {dmResumeIdx!=null&&history[dmResumeIdx]&&<ReferenceLine x={history[dmResumeIdx]?.label} stroke="#22d3ee" strokeWidth={1.5} strokeDasharray="4 4"
-              label={{value:"▶ Retoma",fontSize:9,fill:"#22d3ee",position:"top"}} />}
-            {dmPauseIdx!=null&&dmResumeIdx!=null&&history[dmPauseIdx]&&history[dmResumeIdx]&&
-              <ReferenceArea x1={history[dmPauseIdx]?.label} x2={history[dmResumeIdx]?.label} fill="#f59e0b" fillOpacity={0.06} />}
-            {dmEnd!=null&&history[dmEnd]&&<ReferenceLine x={history[dmEnd]?.label} stroke="#f59e0b" strokeWidth={1.5} strokeDasharray="4 4"
-              label={{value:"◼ Fin",fontSize:10,fill:"#f59e0b",position:"top"}} />}
-          </ComposedChart>
-        </ResponsiveContainer>
-      </div>
-
-      {/* ── Análisis Post-DM (completed tracks only) ── */}
-      {status==="completed" && postDmSlice.length > 0 && (
-        <div className="space-y-4">
-          {/* Completion banner */}
-          <div className="flex items-center gap-3 bg-amber-500/8 border border-amber-500/25 rounded-xl px-5 py-3">
-            <CheckCircle size={15} className="text-amber-400 flex-shrink-0" />
-            <div className="flex-1 min-w-0">
-              <span className="text-sm font-semibold text-amber-300">Análisis Post-DM</span>
-              {endDateStr && <span className="text-xs text-amber-500/80 ml-2">· Completada el {endDateStr}</span>}
-            </div>
-            <div className="text-xs text-amber-600 whitespace-nowrap">{postDmSlice.length} días desde el fin</div>
-          </div>
-
-          {/* ── P&L: ¿convino salir de DM? ── */}
-          {(() => {
-            const daysOut = postDmSlice.length;
-            // Ahorro total de comisión desde que salió de DM
-            const totalCommSaved  = +(dm.dmCommPerDay * daysOut).toFixed(2);
-            // Revenue perdido por streams caídos (total acumulado)
-            const totalRevLost    = +(Math.max(0, dm.revLostPerDay) * daysOut).toFixed(2);
-            // Balance neto acumulado desde salida
-            const totalNetBalance = +(totalCommSaved - totalRevLost).toFixed(2);
-            // Revenue de streams algo durante DM a tasa plena (sin 30% cut)
-            const algoFullRev     = +(dm.campAlgoAvg * track.royalty * daysOut).toFixed(2);
-            // Lo que pagabas de comisión sobre esos algo durante DM
-            const algoCommPaid    = +(dm.campAlgoAvg * track.royalty * 0.30 * (dm.dmAvg > 0 ? daysOut : 0)).toFixed(2);
-            return (
-          <div className="grid grid-cols-2 gap-4">
-            {/* Left: Ahorro acumulado */}
-            <div className="bg-slate-900 rounded-xl border border-slate-800 p-5">
-              <h3 className="text-sm font-semibold text-slate-200 mb-1">Impacto Financiero de Salir de DM</h3>
-              <p className="text-xs text-slate-500 mb-4">Acumulado en {daysOut} días desde el fin de la campaña</p>
-              <div className="space-y-2">
-                {[
-                  {label:"Comisión ahorrada (30% algo streams)",
-                   value:totalCommSaved, color:"text-emerald-400", sign:"+$",
-                   tip:`${fmt.exact(dm.campAlgoAvg)} algo/día × $${track.royalty} × 30% × ${daysOut}d`},
-                  {label:"Revenue perdido por caída de streams",
-                   value:totalRevLost, color:totalRevLost>0?"text-rose-400":"text-emerald-400",
-                   sign:totalRevLost>0?"−$":"+$",
-                   tip:`${fmt.exact(Math.max(0,dm.streamsLostPerDay))} streams/día menos × $${track.royalty} × ${daysOut}d`},
-                  {label:`Balance neto acumulado`,
-                   value:Math.abs(totalNetBalance),
-                   color:totalNetBalance>=0?"text-emerald-400":"text-rose-400",
-                   sign:totalNetBalance>=0?"+$":"−$", border:true,
-                   tip:totalNetBalance>=0?"Salir de DM fue rentable":"Salir de DM generó pérdida neta"},
-                ].map(row=>(
-                  <div key={row.label} className={`flex items-start justify-between gap-3 p-3 rounded-lg ${row.border?"bg-slate-800 border border-slate-700":"bg-slate-800/40"}`}>
-                    <div className="min-w-0">
-                      <p className="text-xs text-slate-300">{row.label}</p>
-                      {row.tip && <p className="text-[10px] text-slate-600 mt-0.5 truncate">{row.tip}</p>}
-                    </div>
-                    <span className={`text-sm font-bold whitespace-nowrap ${row.color}`}>{row.sign}{fmt.usd(row.value)}</span>
-                  </div>
-                ))}
-              </div>
-              {/* Proyección mensual */}
-              <div className="mt-3 bg-slate-800/60 border border-slate-700/50 rounded-lg p-3">
-                <p className="text-xs text-slate-400 mb-2 font-medium">Proyección mensual (30 días)</p>
-                <div className="flex justify-between items-center">
-                  <span className="text-xs text-slate-500">Ahorro comisión/mes</span>
-                  <span className="text-xs font-bold text-emerald-400">+${fmt.usd(dm.dmCommPerDay*30)}</span>
-                </div>
-                <div className="flex justify-between items-center mt-1">
-                  <span className="text-xs text-slate-500">Pérdida streams/mes</span>
-                  <span className={`text-xs font-bold ${dm.revLostPerDay>0?"text-rose-400":"text-emerald-400"}`}>
-                    {dm.revLostPerDay>0?"−$":"+$"}{fmt.usd(Math.abs(dm.revLostPerDay)*30)}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center mt-1 pt-1 border-t border-slate-700">
-                  <span className="text-xs text-slate-400 font-medium">Balance neto/mes</span>
-                  <span className={`text-xs font-bold ${dm.postDmNetBalance>=0?"text-emerald-400":"text-rose-400"}`}>
-                    {dm.postDmNetBalance>=0?"+$":"−$"}{fmt.usd(Math.abs(dm.postDmNetBalance)*30)}
-                  </span>
-                </div>
-              </div>
-              {dm.postDmBreakeven != null && (
-                <div className="mt-3 bg-rose-500/8 border border-rose-500/20 rounded-lg p-3">
-                  <p className="text-xs text-rose-300 leading-relaxed">
-                    <AlertTriangle size={11} className="inline mr-1" />
-                    La pérdida acumulada supera el ahorro en <strong>{dm.postDmBreakeven} días</strong> desde la salida. Considerar reingresar a DM.
-                  </p>
-                </div>
-              )}
-              {dm.postDmNetBalance >= 0 && (
-                <div className="mt-3 bg-emerald-500/8 border border-emerald-500/20 rounded-lg p-3">
-                  <p className="text-xs text-emerald-300 leading-relaxed">
-                    <CheckCircle size={11} className="inline mr-1" />
-                    Salir de DM fue la decisión correcta. El ahorro en comisión supera la pérdida de streams en <strong>+${fmt.usd(totalNetBalance)}</strong> acumulados.
-                  </p>
-                </div>
-              )}
-            </div>
-
-            {/* Right: Conversión algo→orgánico */}
-            <div className="bg-slate-900 rounded-xl border border-slate-800 p-5">
-              <h3 className="text-sm font-semibold text-slate-200 mb-1">Conversión Algo → Orgánico</h3>
-              <p className="text-xs text-slate-500 mb-4">¿Los oyentes algorítmicos se convirtieron en orgánicos?</p>
-              <div className="space-y-3">
-                {[
-                  {phase:"Pre-DM",org:dm.preDmOrgAvg,algo:dm.preDmAlgoAvg,color:"#64748b"},
-                  {phase:"En DM",org:dm.dmOrgAvg,algo:dm.campAlgoAvg,color:"#a855f7"},
-                  {phase:"Post-DM",org:dm.postDmOrgAvg,algo:dm.postDmAlgoAvg,color:"#10b981"},
-                ].map(row=>{
-                  const total = (row.org??0)+(row.algo??0);
-                  const orgPct = total>0?Math.round(((row.org??0)/total)*100):0;
-                  const algoPct = 100-orgPct;
-                  return (
-                    <div key={row.phase}>
-                      <div className="flex justify-between text-xs mb-1">
-                        <span className="text-slate-400">{row.phase}</span>
-                        <span className="text-white font-bold">{fmt.exact(total)}/día</span>
-                      </div>
-                      <div className="flex h-5 rounded-full overflow-hidden bg-slate-800">
-                        <div className="flex items-center justify-center text-[9px] font-bold text-white" style={{width:`${orgPct}%`,background:"#10b981"}}>{orgPct>8?`${orgPct}% org`:""}</div>
-                        <div className="flex items-center justify-center text-[9px] font-bold text-white" style={{width:`${algoPct}%`,background:"#f97316"}}>{algoPct>8?`${algoPct}% algo`:""}</div>
-                      </div>
-                      <div className="flex justify-between text-[10px] mt-0.5">
-                        <span className="text-cyan-500">{fmt.exact(row.org??0)} org</span>
-                        <span className="text-orange-400">{fmt.exact(row.algo??0)} algo</span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-              {/* Conversion signal */}
-              {dm.orgConversion != null && (
-                <div className={`mt-4 border rounded-xl px-4 py-3 text-xs leading-relaxed ${
-                  dm.orgConversion >= 10 ? "bg-emerald-500/8 border-emerald-500/20 text-emerald-300"
-                  : dm.orgConversion >= -5 ? "bg-amber-500/8 border-amber-500/20 text-amber-300"
-                  : "bg-rose-500/8 border-rose-500/20 text-rose-300"
-                }`}>
-                  {dm.orgConversion >= 10
-                    ? <><span className="font-bold mr-1">✓</span>Orgánico post-DM creció <strong>+{dm.orgConversion}%</strong> vs pre-DM. Los oyentes algorítmicos se convirtieron en oyentes regulares.</>
-                    : dm.orgConversion >= -5
-                    ? <><span className="font-bold mr-1">~</span>Orgánico post-DM estable ({dm.orgConversion>0?"+":""}{dm.orgConversion}% vs pre-DM). Los oyentes algo no se retuvieron como orgánicos, pero tampoco cayó.</>
-                    : <><span className="font-bold mr-1">↓</span>Orgánico post-DM cayó <strong>{dm.orgConversion}%</strong> vs pre-DM. DM no logró convertir oyentes algorítmicos en orgánicos — posible canibalización residual.</>}
-                </div>
-              )}
-            </div>
-          </div>
-          );
-          })()}
-
-          {/* ── Stream retention cards ── */}
-          <div className="grid grid-cols-2 gap-3">
-            {[
-              {
-                label: "Avg Post-DM",
-                value: fmt.k(dm.postDmAvg),
-                sub: "streams/día",
-                color: "text-white",
-              },
-              {
-                label: "vs Durante DM",
-                value: dm.postDmDelta != null ? (dm.postDmDelta > 0 ? "+" : "") + dm.postDmDelta + "%" : "—",
-                sub: `${fmt.k(dm.dmAvg)} avg en DM`,
-                color: dm.postDmDelta == null ? "text-slate-500" : dm.postDmDelta >= -15 ? "text-emerald-400" : "text-rose-400",
-              },
-            ].map(card => (
-              <div key={card.label} className="bg-slate-900 border border-slate-800 rounded-xl p-4">
-                <p className="text-xs text-slate-500 mb-1">{card.label}</p>
-                <p className={`text-2xl font-bold ${card.color}`}>{card.value}</p>
-                <p className="text-xs text-slate-600 mt-0.5">{card.sub}</p>
-              </div>
-            ))}
-          </div>
-
-          {/* ── Veredicto: reingresar o quedarse fuera ── */}
-          {(() => {
-            const netPos = dm.postDmNetBalance >= 0;
-            const orgGrew = dm.orgConversion != null && dm.orgConversion >= 5;
-            const stableDecay = dm.postDmDelta != null && dm.postDmDelta >= -20;
-            const verdict = netPos && (orgGrew || stableDecay)
-              ? {color:"emerald", icon:"✓ MANTENER FUERA",
-                 text:`Salir de DM fue la decisión correcta. ${orgGrew ? `Orgánico creció +${dm.orgConversion}% y ` : ""}el ahorro en comisión (${fmt.usd(dm.dmCommPerDay)}/día) compensa cualquier pérdida de streams.`}
-              : netPos
-              ? {color:"amber", icon:"~ MONITOREAR",
-                 text:`El balance diario es positivo (+$${dm.postDmNetBalance.toFixed(4)}/día) pero los streams muestran caída (${dm.postDmDelta}%). Monitorear las próximas 2-4 semanas antes de decidir.`}
-              : {color:"rose", icon:"↻ CONSIDERAR REINGRESO",
-                 text:`El track pierde más revenue por streams caídos ($${Math.abs(dm.revLostPerDay).toFixed(4)}/día) de lo que ahorra en comisión ($${dm.dmCommPerDay.toFixed(4)}/día). ${dm.postDmBreakeven?`Breakeven negativo en ~${dm.postDmBreakeven} días.`:""} Evaluar reingreso a DM.`};
-            const cv = {emerald:"bg-emerald-500/10 border-emerald-500/25 text-emerald-200",amber:"bg-amber-500/10 border-amber-500/25 text-amber-200",rose:"bg-rose-500/10 border-rose-500/25 text-rose-200"};
-            return (
-              <div className={`border-2 rounded-xl px-5 py-4 ${cv[verdict.color]}`}>
-                <p className="text-sm font-black mb-1">{verdict.icon}</p>
-                <p className="text-xs leading-relaxed opacity-90">{verdict.text}</p>
-              </div>
-            );
-          })()}
-
-          {/* Post-DM chart */}
-          <div className="bg-slate-900 rounded-xl border border-slate-800 p-5">
-            <h3 className="text-sm font-semibold text-slate-200 mb-1">Evolución Post-DM</h3>
-            <p className="text-xs text-slate-500 mb-4">Streams reales vs Piso Orgánico estimado — desde la finalización de la campaña</p>
-            <ResponsiveContainer width="100%" height={180}>
-              <ComposedChart data={postChartData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                <XAxis dataKey="label" tick={{fontSize:9,fill:"#64748b"}} axisLine={false} tickLine={false} interval={Math.max(1,Math.floor(postChartData.length/7))} />
-                <YAxis tickFormatter={fmt.k} tick={{fontSize:9,fill:"#64748b"}} axisLine={false} tickLine={false} />
-                <Tooltip content={<ChartTooltip />} />
-                <Legend wrapperStyle={{fontSize:"11px"}} />
-                <Area dataKey="Piso Orgánico" fill="#06b6d4" fillOpacity={0.12} stroke="#06b6d4" strokeWidth={1.5} strokeDasharray="4 4" />
-                <Line dataKey="Streams Reales" stroke="#10b981" strokeWidth={2} dot={false} />
-              </ComposedChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
-
-// ════════════════════════════════════════════════════════════════
-//  ROI SIMULATOR TAB
-// ════════════════════════════════════════════════════════════════
-const ROISimulatorTab = ({ track }) => {
-  const [royaltyM, setRoyaltyM] = useState(Math.round(track.royalty*10000));
-  const [liftPct, setLiftPct] = useState(Math.max(track.dm?.liftPct??0,15));
-  const [horizon, setHorizon] = useState(90);
-  const [eff, setEff] = useState(70);
-  const [commPct, setCommPct] = useState(track.sources.editorial+track.sources.algorithmic);
-  const royaltyRate = royaltyM/10000;
-  const simData = useMemo(()=>{
-    const base = track.metrics?.avgStreams??5000;
-    const dmEff = (liftPct/100)*(eff/100);
-    const dailyInc = base*dmEff;
-    const dailyGross = dailyInc*royaltyRate;
-    const dailyComm = dailyGross*(commPct/100)*0.30;
-    const dailyNet = dailyGross-dailyComm;
-    const pts=[]; let cum=0;
-    for(let d=1;d<=horizon;d++){
-      cum+=dailyNet;
-      if(d===1||d%15===0||d===horizon) pts.push({label:`Día ${d}`,cumulative:+cum.toFixed(2),daily:+dailyNet.toFixed(3)});
-    }
-    return pts;
-  },[royaltyM,liftPct,horizon,eff,commPct,track]);
-  const finalRev=simData.at(-1)?.cumulative??0;
-  const dailyNet=simData.at(-1)?.daily??0;
-  const dailyInc=Math.round((track.metrics?.avgStreams??5000)*(liftPct/100)*(eff/100));
-  const Slider=({label,value,min,max,step,onChange,display})=>(
-    <div>
-      <div className="flex justify-between text-xs mb-2"><span className="text-slate-400">{label}</span><span className="font-bold text-emerald-400">{display(value)}</span></div>
-      <input type="range" min={min} max={max} step={step} value={value} onChange={e=>onChange(+e.target.value)}
-        className="w-full h-1.5 bg-slate-700 rounded-full appearance-none cursor-pointer" />
-      <div className="flex justify-between text-xs text-slate-700 mt-0.5"><span>{display(min)}</span><span>{display(max)}</span></div>
-    </div>
-  );
-  return (
-    <div className="p-5 space-y-5">
-      <div className="grid grid-cols-3 gap-4">
-        <div className="bg-slate-900 rounded-xl border border-slate-800 p-5 space-y-5">
-          <h3 className="text-sm font-semibold text-slate-200 flex items-center gap-2"><Settings size={13} className="text-emerald-400" /> Variables del Simulador</h3>
-          <Slider label="Royalty Rate" value={royaltyM} min={10} max={80} step={1} onChange={setRoyaltyM} display={v=>`$${(v/10000).toFixed(4)}/stream`} />
-          <Slider label="Lift DM Esperado" value={liftPct} min={5} max={200} step={1} onChange={setLiftPct} display={v=>`+${v}%`} />
-          <Slider label="Eficiencia DM" value={eff} min={20} max={100} step={5} onChange={setEff} display={v=>`${v}%`} />
-          <Slider label="Streams con Comisión" value={commPct} min={0} max={100} step={5} onChange={setCommPct} display={v=>`${v}%`} />
-          <Slider label="Horizonte Temporal" value={horizon} min={30} max={365} step={15} onChange={setHorizon} display={v=>`${v} días`} />
-        </div>
-        <div className="col-span-2 space-y-4">
-          <div className="grid grid-cols-3 gap-3">
-            <StatCard label="Revenue Neto Proyectado" value={fmt.usd(finalRev)} sub={`En ${horizon} días`} color="emerald" icon={DollarSign} />
-            <StatCard label="Revenue Neto/Día" value={fmt.usd(dailyNet)} sub="Post-comisión" color="purple" icon={TrendingUp} />
-            <StatCard label="Streams Incrementales/Día" value={fmt.k(dailyInc)} sub="Atribuidos a DM" color="amber" icon={Activity} />
-          </div>
-          <div className="bg-slate-900 rounded-xl border border-slate-800 p-5">
-            <h3 className="text-sm font-semibold text-slate-200 mb-4">Proyección de Revenue Neto Acumulado</h3>
-            <ResponsiveContainer width="100%" height={220}>
-              <AreaChart data={simData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                <XAxis dataKey="label" tick={{fontSize:9,fill:"#64748b"}} axisLine={false} tickLine={false} />
-                <YAxis tickFormatter={v=>fmt.usd(v)} tick={{fontSize:9,fill:"#64748b"}} axisLine={false} tickLine={false} />
-                <Tooltip content={<ChartTooltip />} />
-                <defs><linearGradient id="revGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#10b981" stopOpacity={0.4} /><stop offset="100%" stopColor="#10b981" stopOpacity={0.02} />
-                </linearGradient></defs>
-                <Area dataKey="cumulative" fill="url(#revGrad)" stroke="#10b981" strokeWidth={2.5} name="Revenue Neto Acumulado" dot={false} />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-          <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-4 text-xs text-amber-300 space-y-1.5">
-            <p className="font-semibold flex items-center gap-1.5"><AlertTriangle size={12} /> Supuestos del Modelo</p>
-            <p>• Base: {fmt.k(track.metrics?.avgStreams??0)} streams/día promedio (últimos 28 días reales)</p>
-            <p>• Eficiencia DM = fracción del lift que se convierte en streams incrementales sostenidos</p>
-            <p>• Comisión = {commPct}% de streams incrementales × 30% tasa Spotify = {(commPct*0.30).toFixed(0)}% efectivo</p>
-            <p>• Proyección lineal — campañas reales pueden mostrar patrones de ramp-up o decay</p>
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );
-};
+}
 
 // ════════════════════════════════════════════════════════════════
-//  CHARTMETRIC API
+//  TWEAKS PANEL
 // ════════════════════════════════════════════════════════════════
-const CM_BASE = "https://api.chartmetric.com/api";
-
-const cmFetchToken = async (refreshToken) => {
-  const res = await fetch(`${CM_BASE}/token`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ refreshtoken: refreshToken }),
+function TweaksPanel({ tweaks, setTweaks, T }) {
+  const update = (patch) => setTweaks(prev => {
+    const next = { ...prev, ...patch };
+    try { localStorage.setItem("mdi_tweaks", JSON.stringify(next)); } catch {}
+    return next;
   });
-  if (!res.ok) {
-    const txt = await res.text();
-    throw new Error(`Auth error ${res.status}: ${txt.slice(0,120)}`);
-  }
-  const data = await res.json();
-  if (!data.token) throw new Error("No token in response: " + JSON.stringify(data).slice(0,120));
-  return data.token;
-};
-
-const cmSearchTrack = async (token, query) => {
-  const res = await fetch(`${CM_BASE}/search?q=${encodeURIComponent(query)}&type=tracks&limit=5`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) throw new Error(`Search error ${res.status}`);
-  const data = await res.json();
-  return data.obj?.tracks ?? data.tracks ?? [];
-};
-
-const cmFetchStreams = async (token, cmId, since, until) => {
-  const url = `${CM_BASE}/track/${cmId}/stat/spotify?since=${since}&until=${until}`;
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-  if (!res.ok) throw new Error(`Streams error ${res.status} for CM ID ${cmId}`);
-  const data = await res.json();
-  // Chartmetric returns { obj: [{ timestp, value }] } or { obj: { data: [...] } }
-  const raw = Array.isArray(data.obj) ? data.obj : (data.obj?.data ?? data.data ?? []);
-  const dates   = raw.map(d => (d.timestp ?? d.date ?? "").slice(0,10)).filter(Boolean);
-  const streams = raw.map(d => d.value ?? d.streams ?? 0);
-  return { dates, streams };
-};
-
-// ════════════════════════════════════════════════════════════════
-//  CHARTMETRIC MODAL
-// ════════════════════════════════════════════════════════════════
-const ChartmetricModal = ({ onClose, onSync }) => {
-  const [refreshToken, setRefreshToken] = useState("");
-  const [accessToken, setAccessToken]   = useState(null);
-  const [authStatus, setAuthStatus]     = useState("idle"); // idle|loading|ok|error
-  const [authError, setAuthError]       = useState("");
-  const [trackIds, setTrackIds]         = useState(() =>
-    Object.fromEntries(TRACKS_CFG.map(t => [t.id, ""]))
-  );
-  const [searchStatus, setSearchStatus] = useState({});
-  const [syncStatus, setSyncStatus]     = useState("idle"); // idle|loading|done|error
-  const [syncLog, setSyncLog]           = useState([]);
-
-  const handleAuth = async () => {
-    if (!refreshToken.trim()) return;
-    setAuthStatus("loading"); setAuthError("");
-    try {
-      const tok = await cmFetchToken(refreshToken.trim());
-      setAccessToken(tok);
-      setAuthStatus("ok");
-    } catch(e) { setAuthStatus("error"); setAuthError(e.message); }
-  };
-
-  const handleSearch = async (cfg) => {
-    if (!accessToken) return;
-    setSearchStatus(s => ({...s, [cfg.id]:"loading"}));
-    try {
-      const results = await cmSearchTrack(accessToken, `${cfg.name ?? cfg.id} NTVG`);
-      if (results.length > 0) {
-        const match = results[0];
-        setTrackIds(m => ({...m, [cfg.id]: String(match.id ?? match.cm_track ?? "")}));
-        setSearchStatus(s => ({...s, [cfg.id]:"ok"}));
-      } else {
-        setSearchStatus(s => ({...s, [cfg.id]:"notfound"}));
-      }
-    } catch(e) { setSearchStatus(s => ({...s, [cfg.id]:"error"})); }
-  };
-
-  const handleSync = async () => {
-    if (!accessToken) return;
-    setSyncStatus("loading"); setSyncLog([]);
-    const liveData = {};
-    const since = "2025-01-01";
-    const until = new Date().toISOString().slice(0,10);
-    for (const cfg of TRACKS_CFG) {
-      const cmId = trackIds[cfg.id]?.trim();
-      if (!cmId) { setSyncLog(l => [...l, `⟳ ${cfg.id}: sin CM ID, usando datos embebidos`]); continue; }
-      try {
-        setSyncLog(l => [...l, `↓ Fetching ${cfg.id} (CM ${cmId})…`]);
-        const raw = RAW_STREAM_DATA[cfg.id] ?? RAW_STREAM_DATA_FLORECE[cfg.id];
-        const result = await cmFetchStreams(accessToken, cmId, since, until);
-        const _am = {"NTVG 2":"Downtown","Florece":"DPR"};
-        liveData[cfg.id] = { name: raw?.name ?? cfg.id, artist: _am[raw?.artist] ?? raw?.artist ?? "DPR", ...result };
-        setSyncLog(l => [...l, `✓ ${cfg.id}: ${result.dates.length} días`]);
-      } catch(e) {
-        setSyncLog(l => [...l, `✗ ${cfg.id}: ${e.message}`]);
-      }
-    }
-    setSyncStatus("done");
-    onSync(liveData);
-  };
-
-  const statusIcon = { idle:"", loading:"⟳", ok:"✓", error:"✗", notfound:"?" };
-
   return (
-    <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col" style={{maxHeight:"90vh"}}>
-        {/* Header */}
-        <div className="flex items-center justify-between p-5 border-b border-slate-800 flex-shrink-0">
-          <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center">
-              <Cpu size={13} className="text-white" />
-            </div>
-            <div>
-              <p className="text-sm font-bold text-white">Chartmetric API</p>
-              <p className="text-xs text-slate-500">Sincronización de streams en tiempo real</p>
-            </div>
-          </div>
-          <button onClick={onClose} className="text-slate-500 hover:text-slate-300 transition-colors"><X size={16} /></button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-5 space-y-5">
-          {/* Step 1: Auth */}
-          <div className="bg-slate-800/60 rounded-xl p-4 border border-slate-700">
-            <p className="text-xs font-semibold text-slate-300 mb-3 flex items-center gap-1.5">
-              <span className="w-4 h-4 rounded-full bg-cyan-500/20 text-cyan-400 text-xs flex items-center justify-center font-bold">1</span>
-              Autenticación — Refresh Token
-            </p>
-            <div className="flex gap-2">
-              <input type="password" value={refreshToken} onChange={e=>setRefreshToken(e.target.value)}
-                placeholder="Pegá tu Chartmetric refresh token aquí…"
-                className="flex-1 bg-slate-900 border border-slate-600 focus:border-cyan-500 rounded-lg px-3 py-2 text-xs text-slate-200 placeholder-slate-600 focus:outline-none font-mono" />
-              <button onClick={handleAuth} disabled={authStatus==="loading"||!refreshToken.trim()}
-                className="flex items-center gap-1.5 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-40 text-white text-xs px-4 py-2 rounded-lg font-medium transition-colors whitespace-nowrap">
-                {authStatus==="loading"?<RefreshCw size={11} className="animate-spin" />:<Zap size={11} />}
-                Conectar
-              </button>
-            </div>
-            {authStatus==="ok" && <p className="text-xs text-emerald-400 mt-2">✓ Token válido — listo para sincronizar</p>}
-            {authStatus==="error" && <p className="text-xs text-rose-400 mt-2">✗ {authError}</p>}
-            <p className="text-xs text-slate-600 mt-2">Obtenés el refresh token en <span className="text-cyan-600">app.chartmetric.com → Settings → API</span></p>
-          </div>
-
-          {/* Step 2: Track IDs */}
-          <div className="bg-slate-800/60 rounded-xl p-4 border border-slate-700">
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
-                <span className="w-4 h-4 rounded-full bg-cyan-500/20 text-cyan-400 text-xs flex items-center justify-center font-bold">2</span>
-                Mapeo de Track IDs
-              </p>
-              {accessToken && (
-                <button onClick={()=>TRACKS_CFG.forEach(cfg=>handleSearch(cfg))}
-                  className="text-xs text-cyan-400 hover:text-cyan-300 transition-colors">
-                  Buscar todos automáticamente
-                </button>
-              )}
-            </div>
-            <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
-              {TRACKS_CFG.map(cfg => {
-                const raw = RAW_STREAM_DATA[cfg.id] ?? RAW_STREAM_DATA_FLORECE[cfg.id];
-                const ss = searchStatus[cfg.id];
-                return (
-                  <div key={cfg.id} className="flex items-center gap-2">
-                    <span className="text-xs text-slate-400 truncate w-36 flex-shrink-0">{raw?.name ?? cfg.id}</span>
-                    <input value={trackIds[cfg.id]} onChange={e=>setTrackIds(m=>({...m,[cfg.id]:e.target.value}))}
-                      placeholder="CM Track ID…"
-                      className="flex-1 bg-slate-900 border border-slate-700 focus:border-cyan-500 rounded-md px-2 py-1 text-xs text-slate-300 placeholder-slate-700 focus:outline-none font-mono" />
-                    {accessToken && (
-                      <button onClick={()=>handleSearch(cfg)} title="Buscar en Chartmetric"
-                        className="text-xs text-cyan-500 hover:text-cyan-300 transition-colors w-6 text-center flex-shrink-0">
-                        {ss==="loading"?"⟳":ss==="ok"?"✓":ss==="notfound"?"?":ss==="error"?"✗":"⌕"}
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Step 3: Sync */}
-          <div className="bg-slate-800/60 rounded-xl p-4 border border-slate-700">
-            <p className="text-xs font-semibold text-slate-300 mb-3 flex items-center gap-1.5">
-              <span className="w-4 h-4 rounded-full bg-cyan-500/20 text-cyan-400 text-xs flex items-center justify-center font-bold">3</span>
-              Sincronizar datos de Spotify (2025-01-01 → hoy)
-            </p>
-            <button onClick={handleSync} disabled={!accessToken||syncStatus==="loading"}
-              className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white text-xs px-5 py-2.5 rounded-lg font-semibold transition-colors">
-              {syncStatus==="loading"?<RefreshCw size={12} className="animate-spin" />:<Activity size={12} />}
-              {syncStatus==="loading"?"Sincronizando…":syncStatus==="done"?"Volver a sincronizar":"Sincronizar todo"}
-            </button>
-            {syncLog.length > 0 && (
-              <div className="mt-3 bg-slate-950 rounded-lg p-3 max-h-32 overflow-y-auto">
-                {syncLog.map((l,i)=>(
-                  <p key={i} className={`text-xs font-mono ${l.startsWith("✓")?"text-emerald-400":l.startsWith("✗")?"text-rose-400":"text-slate-500"}`}>{l}</p>
-                ))}
-              </div>
-            )}
-            {syncStatus==="done" && <p className="text-xs text-emerald-400 mt-2">✓ Sincronización completa — el catálogo se actualizó con datos live</p>}
+    <div style={{ position: "fixed", bottom: 20, right: 20, width: 260, background: T.panel, border: `1px solid ${T.borderStrong}`, borderRadius: 10, padding: 18, zIndex: 100, boxShadow: "0 24px 60px rgba(0,0,0,0.4)", fontFamily: "Inter, sans-serif", color: T.fg }}>
+      <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 10, letterSpacing: "0.14em", color: T.muted, marginBottom: 14 }}>TWEAKS</div>
+      {[
+        { label: "Theme",   key: "theme",   opts: [["dark","dark"],["light","light"]] },
+        { label: "Palette", key: "palette", opts: [["green-orange","green/orange"],["teal-amber","teal/amber"],["mono-orange","mono/orange"]] },
+        { label: "Density", key: "density", opts: [["dense","dense"],["compact","compact"],["comfortable","comfortable"]] },
+      ].map(row => (
+        <div key={row.key} style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 10.5, color: T.muted, marginBottom: 6, fontFamily: "IBM Plex Mono, monospace", letterSpacing: "0.08em" }}>{row.label.toUpperCase()}</div>
+          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+            {row.opts.map(([val, lbl]) => {
+              const active = (tweaks[row.key] || row.opts[0][0]) === val;
+              return (
+                <button key={val} onClick={() => update({ [row.key]: val })} style={{ padding: "5px 10px", fontSize: 11, background: active ? T.fg : "transparent", color: active ? T.bg : T.fg, border: `1px solid ${active ? T.fg : T.border}`, borderRadius: 4, textTransform: "capitalize", fontFamily: "Inter, sans-serif", cursor: "pointer" }}>{lbl}</button>
+              );
+            })}
           </div>
         </div>
-
-        <div className="p-4 border-t border-slate-800 flex-shrink-0">
-          <p className="text-xs text-slate-600 text-center">Los datos se mantienen en memoria — al recargar la página vuelven los datos embebidos</p>
-        </div>
-      </div>
+      ))}
     </div>
   );
-};
+}
 
 // ════════════════════════════════════════════════════════════════
-//  ROOT APP
+//  MAIN COMPONENT
 // ════════════════════════════════════════════════════════════════
 export default function MusicDecayIntelligence() {
-  const [selectedArtist, setSelectedArtist] = useState("Downtown");
-  const [selectedId, setSelectedId] = useState(() => {
-    // Pick first track that has real data (avoids empty placeholder tracks)
-    const first = CATALOG.find(t => t.metrics != null && t.name);
-    return first?.id ?? null;
+  // ── Inject Google Fonts ──────────────────────────────────────
+  React.useEffect(() => {
+    if (document.getElementById("mdi-fonts")) return;
+    const link = document.createElement("link");
+    link.id   = "mdi-fonts";
+    link.rel  = "stylesheet";
+    link.href = "https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600;700&display=swap";
+    document.head.appendChild(link);
+    const style = document.createElement("style");
+    style.textContent = `
+      @keyframes slideUp { from { transform: translateX(-50%) translateY(10px); opacity:0; } to { transform: translateX(-50%) translateY(0); opacity:1; } }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      ::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+      body { font-family: 'Inter', system-ui, sans-serif; }
+    `;
+    document.head.appendChild(style);
+  }, []);
+
+  // ── Tweaks (theme / palette / density) ──────────────────────
+  const [tweaks, setTweaks] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("mdi_tweaks") ?? "{}"); } catch { return {}; }
   });
-  const [tab, setTab] = useState("dashboard");
-  const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState("all");
-  const [showCmModal, setShowCmModal]   = useState(false);
-  const [cmLiveData, setCmLiveData]     = useState({});
-  const [showTools, setShowTools]       = useState(false);
-  // dmOverrides: persiste en localStorage — { trackId: { status, dmStart, startDate, endDate, note } }
+  const [showTweaks, setShowTweaks] = useState(false);
+
+  const T = getTheme(tweaks);
+  const A = getAccents(tweaks);
+
+  // ── DM overrides (persisted) ─────────────────────────────────
   const [dmOverrides, setDmOverrides] = useState(() => {
     try { return JSON.parse(localStorage.getItem("mdi_dm_overrides") ?? "{}"); } catch { return {}; }
   });
-  const handleUpdateDM = (id, updates) => {
-    setDmOverrides(p => {
-      const next = { ...p, [id]: { ...(p[id] ?? {}), ...updates } };
-      localStorage.setItem("mdi_dm_overrides", JSON.stringify(next));
-      return next;
-    });
-  };
-  const handleRemoveDM = (id) => {
-    setDmOverrides(p => {
-      const next = { ...p };
-      delete next[id];
-      localStorage.setItem("mdi_dm_overrides", JSON.stringify(next));
-      return next;
-    });
-  };
-  const catalog = useMemo(() => {
+  const [cmLiveData] = useState({});
+
+  // ── Catalog ──────────────────────────────────────────────────
+  const rawCatalog = useMemo(() => {
     const base = buildCatalog(cmLiveData);
     return base.map(t => {
       const ov = dmOverrides[t.id];
-      if (!ov) return t;
-      return { ...t, ...ov };
+      return ov ? { ...t, ...ov } : t;
     });
   }, [cmLiveData, dmOverrides]);
-  // Filter catalog by selected artist
-  const artistCatalog = useMemo(
-    () => catalog.filter(t => t.artist === selectedArtist),
-    [catalog, selectedArtist]
-  );
-  const track = useMemo(()=>artistCatalog.find(t=>t.id===selectedId),[artistCatalog, selectedId]);
-  const handleSelect=(id)=>{ setSelectedId(id); };
-  const handleArtistChange = (a) => { setSelectedArtist(a); setSelectedId(null); };
-  const handleUpdateStatus = (id, status) => handleUpdateDM(id, { status });
 
-  // ── Keyboard navigation ←/→ ──────────────────────────────────
+  // Filter to primary artist ("Downtown" = NTVG in S4A)
+  const PRIMARY_ARTIST = "Downtown";
+  const artistCatalog = useMemo(
+    () => rawCatalog.filter(t => t.artist === PRIMARY_ARTIST),
+    [rawCatalog]
+  );
+
+  // Adapt to display format
+  const tracks = useMemo(() => artistCatalog.map(adaptTrack), [artistCatalog]);
+
+  // Monthly data
+  const monthly = useMemo(() => buildMonthlyData(artistCatalog), [artistCatalog]);
+
+  // Catalog summary for sidebar
+  const catalogSummary = {
+    artist: "No Te Va Gustar",
+    totalTracks: tracks.length,
+  };
+
+  // ── UI state ─────────────────────────────────────────────────
+  const [selectedId, setSelectedId] = useState(() => {
+    // Auto-select first track with metrics
+    const first = artistCatalog.find(t => t.metrics != null && t.name);
+    return first?.id ?? null;
+  });
+  const [view,            setView]            = useState("dashboard");
+  const [query,           setQuery]           = useState("");
+  const [filter,          setFilter]          = useState("all");
+  const [sortBy,          setSortBy]          = useState("streams");
+  const [cmdOpen,         setCmdOpen]         = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [toast,           setToast]           = useState(null);
+  const toastTimer = useRef(null);
+
+  // Auto-select first if nothing selected
+  useEffect(() => {
+    if (!selectedId && tracks.length > 0) setSelectedId(tracks[0].id);
+  }, [tracks]);
+
+  const track = useMemo(() => tracks.find(t => t.id === selectedId) ?? null, [tracks, selectedId]);
+
+  // ── Toast helper ─────────────────────────────────────────────
+  const showToast = (msg) => {
+    setToast(msg);
+    clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 2600);
+  };
+
+  // ── Keyboard shortcuts ───────────────────────────────────────
   useEffect(() => {
     const onKey = (e) => {
       if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
-      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
-      e.preventDefault();
-      const ids = artistCatalog.map(t => t.id);
+      const ids = tracks.map(t => t.id);
       const cur = ids.indexOf(selectedId);
-      if (e.key === "ArrowLeft"  && cur > 0)              setSelectedId(ids[cur - 1]);
-      if (e.key === "ArrowRight" && cur < ids.length - 1) setSelectedId(ids[cur + 1]);
+      if (e.key === "ArrowUp" || e.key === "k") {
+        e.preventDefault();
+        if (cur > 0) setSelectedId(ids[cur - 1]);
+      } else if (e.key === "ArrowDown" || e.key === "j") {
+        e.preventDefault();
+        if (cur < ids.length - 1) setSelectedId(ids[cur + 1]);
+      } else if (e.key === "1") { setView("dashboard"); }
+      else if (e.key === "2") { setView("dm-audit"); }
+      else if (e.key === "3") { setView("performance"); }
+      else if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault(); setCmdOpen(o => !o);
+      } else if (e.key === "[") { setSidebarCollapsed(c => !c); }
+      else if (e.key === "Escape") { setCmdOpen(false); setShowTweaks(false); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [artistCatalog, selectedId]);
+  }, [tracks, selectedId]);
 
-  // ── Next alert track ─────────────────────────────────────────
-  const nextAlertTrack = useMemo(() =>
-    artistCatalog.find(t => t.id !== selectedId && _hasAlert(t)) ?? null,
-    [artistCatalog, selectedId]
-  );
-
-  // ── DM slots ─────────────────────────────────────────────────
-  const usedSlots = artistCatalog.filter(t => t.status === "active").length;
-  const freeSlots = DM_SLOTS - usedSlots;
-
-  // Overlay panels (Dashboard, Manager, Performance) sit on top of the main track view
-  const [overlay, setOverlay] = React.useState(null); // "dashboard" | "manager" | "performance" | null
-  const OVERLAY_PANELS=[
-    {id:"dashboard",  label:"Dashboard",   icon:BarChart2},
-    {id:"manager",    label:"Campañas DM", icon:Radio},
-    {id:"performance",label:"Performance", icon:TrendingUp},
-  ];
-  const TRACK_TABS=[
-    {id:"decay", label:"Decay",    icon:Activity},
-    {id:"audit", label:"DM Audit", icon:Zap},
-  ];
+  // ── Action handler ───────────────────────────────────────────
+  const handleAction = (action) => {
+    if (action === "Abrir en Spotify" && track?.spotifyId) {
+      window.open(`https://open.spotify.com/track/${track.spotifyId}`, "_blank");
+    }
+    showToast(action);
+  };
 
   return (
-    <div className="flex h-screen bg-slate-950 text-slate-100 overflow-hidden" style={{fontFamily:"system-ui,-apple-system,sans-serif"}}>
-      <Sidebar tracks={artistCatalog} selectedId={selectedId} onSelect={handleSelect}
-        search={search} onSearch={setSearch} filter={filter} onFilter={setFilter}
-        artist={selectedArtist} onArtist={handleArtistChange} />
+    <div style={{ display: "flex", height: "100vh", background: T.bg, color: T.fg, overflow: "hidden", fontFamily: "Inter, sans-serif" }}>
+      {/* Sidebar */}
+      <Sidebar
+        tracks={tracks}
+        selectedId={selectedId}
+        onSelect={setSelectedId}
+        query={query}
+        onQuery={setQuery}
+        filter={filter}
+        onFilter={setFilter}
+        sortBy={sortBy}
+        onSort={setSortBy}
+        collapsed={sidebarCollapsed}
+        T={T} A={A}
+        catalog={catalogSummary}
+      />
 
-      {/* ── Main track detail area ── */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-2.5 border-b border-slate-800 bg-slate-900/60 flex-shrink-0">
-          <nav className="flex items-center gap-1">
-            {/* Dynamic Island */}
-            <DynamicIsland track={track} isTrackTab={true} totalTracks={catalog.length} />
-            <span className="w-px h-5 bg-slate-700/80 mx-1.5" />
-            {/* Track tabs */}
-            {TRACK_TABS.map(({id,label,icon:Icon})=>(
-              <button key={id} onClick={()=>{ if(track) setTab(id); }}
-                title={!track?"Seleccioná un track primero":undefined}
-                className={`flex items-center gap-1.5 text-xs px-3.5 py-2 rounded-lg font-medium transition-all
-                  ${!track?"opacity-30 cursor-not-allowed":""}
-                  ${tab===id&&track?"bg-slate-700 text-white":"text-slate-400 hover:text-slate-200 hover:bg-slate-800/60"}`}>
-                <Icon size={12} />{label}
-              </button>
-            ))}
-          </nav>
-
-          <div className="flex items-center gap-1">
-            {/* Slots warning */}
-            {freeSlots <= 5 && (
-              <span className={`text-[10px] font-semibold px-2 py-1 rounded-lg border mr-1 ${freeSlots === 0 ? "bg-rose-500/15 border-rose-500/30 text-rose-300" : "bg-amber-500/15 border-amber-500/30 text-amber-300"}`}>
-                {freeSlots === 0 ? "⚠ Sin slots" : `⚠ ${freeSlots} slots`}
-              </span>
-            )}
-            {/* Next alert track */}
-            {nextAlertTrack && (
-              <button onClick={() => handleSelect(nextAlertTrack.id)}
-                title={`Ir a: ${nextAlertTrack.name}`}
-                className="flex items-center gap-1.5 text-[10px] px-2.5 py-1.5 rounded-lg border border-rose-500/30 bg-rose-500/10 text-rose-300 hover:bg-rose-500/20 transition-colors mr-1">
-                <AlertTriangle size={11} />
-                {nextAlertTrack.name.split(" ").slice(0,2).join(" ")}
-              </button>
-            )}
-            {/* Keyboard hint */}
-            <span className="text-[9px] text-slate-700 mr-1 hidden xl:flex items-center gap-0.5">
-              <span className="bg-slate-800 border border-slate-700 rounded px-1">←</span>
-              <span className="bg-slate-800 border border-slate-700 rounded px-1">→</span>
-            </span>
-            {/* Report panel buttons */}
-            {OVERLAY_PANELS.map(({id,label,icon:Icon})=>(
-              <button key={id} onClick={()=>setOverlay(id)}
-                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-medium transition-all text-slate-400 hover:text-slate-200 hover:bg-slate-800/60">
-                <Icon size={12} />{label}
-              </button>
-            ))}
-            <span className="w-px h-5 bg-slate-700/80 mx-1" />
-            {/* Tools dropdown */}
-            <div className="relative">
-              <button onClick={()=>setShowTools(t=>!t)}
-                className={`flex items-center gap-1 text-xs px-2 py-1.5 rounded-lg border transition-colors
-                  ${showTools?"bg-slate-700 border-slate-600 text-slate-200":"bg-slate-800 border-slate-700 text-slate-500 hover:text-slate-300 hover:bg-slate-700"}`}>
-                <ChevronDown size={13} className={`transition-transform duration-150 ${showTools?"rotate-180":""}`} />
-              </button>
-              {showTools && (
-                <div className="absolute right-0 top-full mt-1.5 flex flex-col bg-slate-800 border border-slate-700 rounded-xl shadow-xl z-50 overflow-hidden min-w-[148px]">
-                  <button onClick={()=>{ setShowCmModal(true); setShowTools(false); }}
-                    className="flex items-center gap-2 text-xs px-4 py-2.5 hover:bg-slate-700 transition-colors text-slate-400 hover:text-slate-200 whitespace-nowrap">
-                    <Cpu size={11} />
-                    {Object.keys(cmLiveData).length > 0 ? <span className="text-cyan-400">CM Live ✓</span> : "Chartmetric"}
-                  </button>
-                  <button className="flex items-center gap-2 text-xs px-4 py-2.5 hover:bg-slate-700 transition-colors text-slate-400 hover:text-slate-200 whitespace-nowrap border-t border-slate-700/50">
-                    <FileText size={11} /> Export PDF
-                  </button>
-                </div>
-              )}
+      {/* Main area */}
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        {/* TopBar */}
+        {view !== "performance" ? (
+          <TopBar
+            track={track}
+            tracks={tracks}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+            view={view}
+            onView={setView}
+            cmdOpen={cmdOpen}
+            onCmd={() => setCmdOpen(o => !o)}
+            onAction={handleAction}
+            T={T} A={A}
+          />
+        ) : (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 16px", height: 48, borderBottom: `1px solid ${T.border}`, background: T.panel, flexShrink: 0 }}>
+            <div style={{ display: "flex", gap: 2 }}>
+              {[{ id:"dashboard", label:"◐ Decay", kbd:"1" }, { id:"dm-audit", label:"⊙ DM Audit", kbd:"2" }, { id:"performance", label:"↗ Performance", kbd:"3" }].map(v => (
+                <button key={v.id} onClick={() => setView(v.id)} style={{ display:"flex", alignItems:"center", gap:6, padding:"6px 14px", fontSize:12.5, borderRadius:6, background: view===v.id ? "rgba(255,255,255,0.08)" : "transparent", color: view===v.id ? T.fg : T.muted, border: view===v.id ? `1px solid ${T.border}` : "1px solid transparent", cursor:"pointer" }}>
+                  {v.label}
+                </button>
+              ))}
             </div>
+            <button onClick={() => setCmdOpen(o => !o)} style={{ padding:"5px 10px", fontSize:12, background:"transparent", border:`1px solid ${T.border}`, borderRadius:6, color:T.muted, cursor:"pointer" }}>⌘K</button>
           </div>
-        </div>
+        )}
 
-        {/* Track content */}
-        <div className="flex-1 overflow-y-auto">
-          <ErrorBoundary key={tab + selectedId}>
-            {!track ? (
-              <div className="flex items-center justify-center h-full">
-                <div className="text-center">
-                  <Activity size={32} className="text-slate-700 mx-auto mb-3" />
-                  <p className="text-slate-500 font-medium">Seleccioná un track para comenzar</p>
-                  <p className="text-xs text-slate-700 mt-1">Usá el panel izquierdo para navegar el catálogo</p>
+        {/* View content */}
+        <div style={{ flex: 1, overflowY: "auto", background: T.bg }}>
+          <ErrorBoundary key={view + selectedId}>
+            {view === "performance" ? (
+              <PerformanceView T={T} A={A} monthly={monthly} tracks={tracks} />
+            ) : !track ? (
+              <div style={{ display:"flex", alignItems:"center", justifyContent:"center", height:"100%", color:T.muted }}>
+                <div style={{ textAlign:"center" }}>
+                  <div style={{ fontSize:40, marginBottom:16 }}>◐</div>
+                  <div style={{ fontSize:14, fontWeight:500, color:T.fgSoft }}>Seleccioná un track para comenzar</div>
+                  <div style={{ fontSize:12, color:T.muted, marginTop:6 }}>Usá el panel izquierdo para navegar el catálogo</div>
                 </div>
               </div>
-            ) : tab==="decay" ? <DecayTab track={track} catalog={artistCatalog} />
-              : tab==="audit" ? <DMAuditTab track={track} />
-              : <DecayTab track={track} catalog={artistCatalog} />}
+            ) : view === "dm-audit" ? (
+              <AuditView T={T} A={A} track={track} />
+            ) : (
+              <DashboardView T={T} A={A} track={track} />
+            )}
           </ErrorBoundary>
         </div>
       </div>
 
-      {/* ── Overlay panels (Dashboard / Manager / Performance) ── */}
-      {overlay && (
-        <div className="absolute inset-0 z-40 flex" style={{background:"rgba(2,6,23,0.7)"}}>
-          <div className="flex-1 flex flex-col bg-slate-950 ml-[220px] overflow-hidden">
-            {/* Overlay header */}
-            <div className="flex items-center justify-between px-5 py-2.5 border-b border-slate-800 bg-slate-900/80 flex-shrink-0">
-              <div className="flex items-center gap-2">
-                {OVERLAY_PANELS.map(({id,label,icon:Icon})=>(
-                  <button key={id} onClick={()=>setOverlay(id)}
-                    className={`flex items-center gap-1.5 text-xs px-3.5 py-2 rounded-lg font-medium transition-all ${overlay===id?"bg-slate-700 text-white":"text-slate-400 hover:text-slate-200 hover:bg-slate-800/60"}`}>
-                    <Icon size={12}/>{label}
-                  </button>
-                ))}
-              </div>
-              <button onClick={()=>setOverlay(null)}
-                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors border border-slate-700">
-                <X size={12} /> Cerrar
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto">
-              <ErrorBoundary key={overlay}>
-                {overlay==="dashboard"  && <DashboardTab tracks={artistCatalog} onSelectTrack={(id)=>{ handleSelect(id); setOverlay(null); setTab("decay"); }} />}
-                {overlay==="manager"    && <DMManagerTab catalog={artistCatalog} onUpdateStatus={handleUpdateStatus} dmOverrides={dmOverrides} onUpdateDM={handleUpdateDM} onRemoveDM={handleRemoveDM} />}
-                {overlay==="performance"&& <PerformanceTab tracks={artistCatalog} />}
-              </ErrorBoundary>
-            </div>
-          </div>
-        </div>
-      )}
-      {showCmModal&&(
-        <ChartmetricModal
-          onClose={()=>setShowCmModal(false)}
-          onSync={(data)=>{ setCmLiveData(prev=>({...prev,...data})); setShowCmModal(false); }}
-        />
-      )}
+      {/* Command Palette */}
+      <CommandPalette
+        tracks={tracks} open={cmdOpen}
+        onClose={() => setCmdOpen(false)}
+        onSelect={(id) => setSelectedId(id)}
+        onView={setView}
+        T={T} A={A}
+      />
+
+      {/* Toast */}
+      <Toast message={toast} T={T} A={A} />
+
+      {/* Tweaks toggle button */}
+      <button onClick={() => setShowTweaks(o => !o)}
+        style={{ position:"fixed", bottom:20, right:showTweaks?292:20, width:36, height:36, borderRadius:"50%", background:T.panel, border:`1px solid ${T.border}`, color:T.muted, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, boxShadow:"0 4px 12px rgba(0,0,0,0.3)", zIndex:101 }}
+        title="Tweaks">
+        ⚙
+      </button>
+      {showTweaks && <TweaksPanel tweaks={tweaks} setTweaks={setTweaks} T={T} />}
     </div>
   );
 }
