@@ -1067,572 +1067,213 @@ const fmt = {
 //  DESIGN TOKENS
 // ════════════════════════════════════════════════════════════════
 function getTheme(tweaks) {
-  const dark = tweaks?.theme === "light" ? false : true;
-  if (dark) return {
-    bg:           "#0b0f14",
-    panel:        "#121821",
-    panel2:       "#1a212d",
-    border:       "rgba(255,255,255,0.08)",
-    borderStrong: "rgba(255,255,255,0.14)",
-    fg:           "#e8ecf1",
-    fgSoft:       "#b7bfcc",
-    muted:        "#7a8494",
-    mutedSoft:    "#556072",
-  };
-  return {
-    bg:           "#f5f6f8",
-    panel:        "#ffffff",
-    panel2:       "#fafbfc",
-    border:       "rgba(0,0,0,0.08)",
-    borderStrong: "rgba(0,0,0,0.14)",
-    fg:           "#0e141b",
-    fgSoft:       "#3b4553",
-    muted:        "#6a7484",
-    mutedSoft:    "#8a9aaa",
+  const dark = tweaks?.theme !== "light";
+  return dark ? {
+    bg:"#0b0f14", panel:"#121821", panel2:"#1a212d",
+    border:"rgba(255,255,255,0.08)", borderStrong:"rgba(255,255,255,0.14)",
+    fg:"#e8ecf1", fgSoft:"#b7bfcc", muted:"#7a8494", mutedSoft:"#556072",
+  } : {
+    bg:"#f5f6f8", panel:"#ffffff", panel2:"#fafbfc",
+    border:"rgba(0,0,0,0.08)", borderStrong:"rgba(0,0,0,0.14)",
+    fg:"#0e141b", fgSoft:"#3b4553", muted:"#6a7484", mutedSoft:"#8a9aaa",
   };
 }
-
 function getAccents(tweaks) {
   const p = tweaks?.palette || "green-orange";
-  if (p === "teal-amber")  return { org:"#5eead4", dm:"#fbbf24", rev:"#c084fc", warn:"#fb7185", pos:"#5eead4" };
-  if (p === "mono-orange") return { org:"#94a3b8", dm:"#fb923c", rev:"#e879f9", warn:"#ef4444", pos:"#22c55e" };
-  return { org:"#2dd4a7", dm:"#f79448", rev:"#a78bfa", warn:"#f87171", pos:"#2dd4a7" };
+  if (p==="teal-amber")  return {org:"#5eead4",dm:"#fbbf24",rev:"#c084fc",warn:"#fb7185",pos:"#5eead4"};
+  if (p==="mono-orange") return {org:"#94a3b8",dm:"#fb923c",rev:"#e879f9",warn:"#ef4444",pos:"#22c55e"};
+  return {org:"#2dd4a7",dm:"#f79448",rev:"#a78bfa",warn:"#f87171",pos:"#2dd4a7"};
 }
 
 // ════════════════════════════════════════════════════════════════
-//  HELPERS / FORMATTERS
+//  FORMATTERS
 // ════════════════════════════════════════════════════════════════
-const formatInt = (n) => Math.round(n ?? 0).toLocaleString();
-const formatPct = (n) => `${(n ?? 0) > 0 ? "+" : ""}${(n ?? 0).toFixed(1)}%`;
-const formatUSD = (n) => `$${Math.abs(n ?? 0).toFixed(2)}`;
-const fmtK = (n) => n >= 1e6 ? `${(n/1e6).toFixed(1)}M` : n >= 1e3 ? `${(n/1e3).toFixed(1)}K` : `${Math.round(n??0)}`;
-
-// ════════════════════════════════════════════════════════════════
-//  DATA ADAPTERS
-// ════════════════════════════════════════════════════════════════
-function adaptTrack(track) {
-  const history = track.history ?? [];
-  const n = history.length;
-
-  // Group daily history into weekly buckets
-  const weekBuckets = [];
-  for (let i = 0; i < n; i += 7) {
-    const slice = history.slice(i, Math.min(i + 7, n));
-    const org = slice.reduce((s, d) => s + Math.max(0, (d.streams ?? 0) - (d.programmedStreams ?? 0)), 0);
-    const alg = slice.reduce((s, d) => s + (d.programmedStreams ?? 0), 0);
-    weekBuckets.push({ org, alg });
-  }
-
-  // Take last 52 weeks
-  const weeks52 = weekBuckets.slice(-52);
-  // Pad to 52 if shorter
-  while (weeks52.length < 52) weeks52.unshift({ org: 0, alg: 0 });
-  const organic     = weeks52.map(w => w.org);
-  const algorithmic = weeks52.map(w => w.alg);
-
-  // DM start week in the 52-week array
-  let dmStartWeek = undefined;
-  if (track.dmStart != null) {
-    const dmWeekFull = Math.floor(track.dmStart / 7);
-    const offset = Math.max(0, weekBuckets.length - 52);
-    const dmWeek52 = dmWeekFull - offset;
-    if (dmWeek52 >= 0 && dmWeek52 < 52) dmStartWeek = dmWeek52;
-  }
-
-  const totalOrg = organic.reduce((s, v) => s + v, 0);
-  const totalAlg = algorithmic.reduce((s, v) => s + v, 0);
-  const totalAll = totalOrg + totalAlg;
-  const algShare = totalAll > 0 ? Math.round((totalAlg / totalAll) * 1000) / 10 : 0;
-
-  // Decay score 0-100
-  let decayScore = 50;
-  if (track.metrics) {
-    const { structK = 0.02, organicFloor = 0.1, mom4w = 0 } = track.metrics;
-    const kFactor    = Math.max(0, 1 - structK / 0.05);
-    const floorFactor = Math.min(1, organicFloor / 0.25);
-    const momFactor  = Math.max(0, Math.min(1, (mom4w + 40) / 80));
-    decayScore = Math.round(kFactor * 50 + floorFactor * 30 + momFactor * 20);
-  }
-
-  // Status mapping: active→dm_active, completed→completed, else→idle
-  const statusMap = { active: "dm_active", completed: "completed" };
-  const displayStatus = statusMap[track.status] || "idle";
-
-  const momentum = Math.round((track.metrics?.mom4w ?? 0) * 10) / 10;
-  const dmLift   = track.dm?.liftPct != null ? Math.round(track.dm.liftPct) : 0;
-  const totalStreams = history.reduce((s, d) => s + (d.streams ?? 0), 0);
-  const currentWeekly = weeks52.length > 0
-    ? (weeks52[weeks52.length - 1].org + weeks52[weeks52.length - 1].alg)
-    : 0;
-
-  return {
-    ...track,
-    title:           track.name,
-    displayStatus,
-    organic,
-    algorithmic,
-    total:           organic.map((v, i) => v + (algorithmic[i] ?? 0)),
-    totalStreams,
-    organicStreams:  totalOrg,
-    algorithmicStreams: totalAlg,
-    algShare,
-    momentum,
-    dmLift,
-    decayScore,
-    dmStartWeek,
-    currentWeekly,
-  };
-}
-
-function buildWaterfallForTrack(track) {
-  const dm = track.dm;
-  if (!dm) {
-    return { preDm:0, enDmOrg:0, enDmAlg:0, revenueBruto:0, incAlg:0, incOrg:0, comision:0, revenueNeto:0, algShare:0, orgShare:100 };
-  }
-  const preDm    = Math.round(dm.baseline ?? 0);
-  const enDmAlg  = Math.round(dm.campProgObs ?? dm.observed * (dm.algoRatio ?? 0) ?? 0);
-  const enDmOrg  = Math.round(dm.campOrgObs ?? dm.observed * (1 - (dm.algoRatio ?? 0)) ?? 0);
-  const revenueBruto = dm.gross != null ? +dm.gross : ((enDmAlg + enDmOrg) * 0.00092);
-  const incAlg   = dm.algoGross ?? enDmAlg * 0.00092;
-  const incOrg   = dm.orgGross  ?? enDmOrg * 0.00092;
-  const comision  = dm.commission ?? 0;
-  const revenueNeto = dm.net != null ? +dm.net : (revenueBruto - comision);
-  const totalS    = enDmAlg + enDmOrg;
-  const algShare  = totalS > 0 ? Math.round((enDmAlg / totalS) * 100) : 0;
-  return {
-    preDm,
-    enDmOrg,
-    enDmAlg,
-    revenueBruto: Math.round(revenueBruto * 100) / 100,
-    incAlg:        Math.round(incAlg * 100) / 100,
-    incOrg:        Math.round(incOrg * 100) / 100,
-    comision:      Math.round(comision * 100) / 100,
-    revenueNeto:   Math.round(revenueNeto * 100) / 100,
-    algShare,
-    orgShare:      100 - algShare,
-  };
-}
-
-function buildMonthlyData(tracks) {
-  // Group all track histories by month and aggregate
-  const monthMap = {};
-  tracks.forEach(track => {
-    (track.history ?? []).forEach(d => {
-      if (!d.date) return;
-      const monthKey = d.date.slice(0, 7); // "YYYY-MM"
-      if (!monthMap[monthKey]) monthMap[monthKey] = { streams: 0, prog: 0, rev: 0, count: 0 };
-      monthMap[monthKey].streams += d.streams ?? 0;
-      monthMap[monthKey].prog    += d.programmedStreams ?? 0;
-    });
-  });
-
-  const monthKeys = Object.keys(monthMap).sort();
-  // Only show last 12 months that have data
-  const recent = monthKeys.slice(-12);
-
-  const MONTH_LABELS = {
-    "01":"Ene","02":"Feb","03":"Mar","04":"Abr","05":"May","06":"Jun",
-    "07":"Jul","08":"Ago","09":"Sep","10":"Oct","11":"Nov","12":"Dic"
-  };
-  return recent.map((k, i) => {
-    const d = monthMap[k];
-    const [yr, mo] = k.split("-");
-    const label = `${MONTH_LABELS[mo]} ${yr.slice(2)}`;
-    const orgStreams = Math.max(0, d.streams - d.prog);
-    const dmStreams  = d.prog;
-    const streamsTotal = d.streams;
-    const revenueNeto = +(streamsTotal * 0.00092 * 0.7).toFixed(2);
-    const liftDM = dmStreams > 0 && orgStreams > 0 ? +((dmStreams / orgStreams * 100)).toFixed(1) : 0;
-    const tracksDM = tracks.filter(t => {
-      const hist = t.history ?? [];
-      return hist.some(h => h.date?.startsWith(k) && h.programmedStreams > 0);
-    }).length;
-    return { month: label, streamsTotal, orgStreams, dmStreams, liftDM, tracksDM, revenueNeto, efficiency: "—" };
-  });
-}
+const fmtK = n => n>=1e6?`${(n/1e6).toFixed(1)}M`:n>=1e3?`${(n/1e3).toFixed(1)}K`:`${Math.round(n??0)}`;
+const fmtInt = n => Math.round(n??0).toLocaleString("es-AR");
+const fmtPct = n => `${(n??0)>0?"+":""}${(n??0).toFixed(1)}%`;
+const fmtUSD = n => `$${Math.abs(n??0).toFixed(2)}`;
+const fmtDate = s => s ? s.slice(0,10) : "—";
 
 // ════════════════════════════════════════════════════════════════
-//  CHART COMPONENTS (pure SVG)
+//  MINI SPARKLINE (sidebar)
 // ════════════════════════════════════════════════════════════════
-function DualAreaChart({ organic = [], algorithmic = [], orgColor, algColor, dmStartWeek, height = 260 }) {
-  const WIDTH = 800;
-  const total = organic.map((v, i) => v + (algorithmic[i] ?? 0));
-  const max = (Math.max(...total, 1)) * 1.1;
-  const n = organic.length;
-  if (n < 2) return null;
-  const xAt = i => (i / (n - 1)) * WIDTH;
-  const yAt = v => height - (v / max) * height;
-
-  const orgPath = organic.map((v, i) => `${i === 0 ? "M" : "L"}${xAt(i).toFixed(1)},${yAt(v).toFixed(1)}`).join(" ");
-  const algOnOrg = algorithmic.map((v, i) => yAt((organic[i] ?? 0) + v));
-  const algTopPath = algorithmic.map((v, i) => `${i === 0 ? "M" : "L"}${xAt(i).toFixed(1)},${algOnOrg[i].toFixed(1)}`).join(" ");
-  const orgArea = `${orgPath} L${WIDTH},${height} L0,${height} Z`;
-  const algArea = `${algTopPath} ${organic.slice().reverse().map((v, ri) => `L${xAt(n - 1 - ri).toFixed(1)},${yAt(v).toFixed(1)}`).join(" ")} Z`;
-
-  const yTicks = [0, 0.25, 0.5, 0.75, 1].map(t => ({ y: height - t * height, label: fmtK(max * t) }));
-  const xTicks = [0, Math.floor(n/4), Math.floor(n/2), Math.floor(3*n/4), n-1];
-
+const MiniSparkline = ({ history = [], color = "#64748b" }) => {
+  const vals = history.slice(-20).map(d => d.streams ?? 0);
+  if (vals.length < 2) return <div style={{width:80,height:20}} />;
+  const max = Math.max(...vals, 1);
+  const W = 80, H = 20;
+  const pts = vals.map((v, i) => [(i/(vals.length-1))*W, H-(v/max)*H]);
+  const path = pts.map((p,i) => `${i===0?"M":"L"}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(" ");
   return (
-    <svg width="100%" viewBox={`-50 -10 ${WIDTH + 70} ${height + 36}`} style={{ display: "block", overflow: "visible" }}>
-      {yTicks.map((t, i) => (
-        <g key={i}>
-          <line x1="0" x2={WIDTH} y1={t.y} y2={t.y} stroke="currentColor" strokeWidth="0.5" opacity="0.08" />
-          <text x="-10" y={t.y + 3} textAnchor="end" fontSize="10" fontFamily="IBM Plex Mono, monospace" fill="currentColor" opacity="0.45">{t.label}</text>
-        </g>
-      ))}
-      {dmStartWeek !== undefined && dmStartWeek >= 0 && dmStartWeek < n && (
-        <g>
-          <line x1={xAt(dmStartWeek)} x2={xAt(dmStartWeek)} y1="0" y2={height} stroke={algColor} strokeWidth="1" strokeDasharray="4,3" opacity="0.7" />
-          <rect x={xAt(dmStartWeek) - 32} y="-8" width="64" height="14" fill={algColor} opacity="0.15" rx="2" />
-          <text x={xAt(dmStartWeek)} y="2" textAnchor="middle" fontSize="9" fontFamily="IBM Plex Mono, monospace" fill={algColor} letterSpacing="0.06em">DM START</text>
-        </g>
-      )}
-      <path d={orgArea} fill={orgColor} opacity="0.22" />
-      <path d={algArea} fill={algColor} opacity="0.22" />
-      <path d={orgPath} fill="none" stroke={orgColor} strokeWidth="1.5" />
-      <path d={algTopPath} fill="none" stroke={algColor} strokeWidth="1.5" />
-      {xTicks.map((i, j) => (
-        <text key={j} x={xAt(i)} y={height + 16} textAnchor="middle" fontSize="10" fontFamily="IBM Plex Mono, monospace" fill="currentColor" opacity="0.45">W{i+1}</text>
-      ))}
-    </svg>
-  );
-}
-
-function MonthlyBars({ data = [], orgColor, dmColor, revColor, height = 220 }) {
-  const WIDTH = 800;
-  if (!data.length) return null;
-  const max = Math.max(...data.map(d => d.streamsTotal), 1) * 1.1;
-  const maxRev = Math.max(...data.map(d => d.revenueNeto), 1) * 1.2;
-  const bw = WIDTH / data.length;
-  const revPts = data.map((d, i) => [i * bw + bw / 2, height - (d.revenueNeto / maxRev) * height]);
-  const revPath = revPts.map((p, i) => `${i === 0 ? "M" : "L"}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(" ");
-  return (
-    <svg width="100%" viewBox={`-40 -10 ${WIDTH + 80} ${height + 36}`} style={{ display: "block", overflow: "visible" }}>
-      {[0, 0.5, 1].map((t, i) => (
-        <g key={i}>
-          <line x1="0" x2={WIDTH} y1={height - t * height} y2={height - t * height} stroke="currentColor" strokeWidth="0.5" opacity="0.08" />
-          <text x="-8" y={height - t * height + 3} textAnchor="end" fontSize="9" fontFamily="IBM Plex Mono, monospace" fill="currentColor" opacity="0.45">{fmtK(max * t)}</text>
-        </g>
-      ))}
-      {data.map((d, i) => {
-        const orgH = (d.orgStreams / max) * height;
-        const dmH  = (d.dmStreams / max) * height;
-        const x = i * bw + bw * 0.2;
-        const w = bw * 0.6;
-        return (
-          <g key={i}>
-            <rect x={x} y={height - orgH} width={w} height={orgH} fill={orgColor} opacity="0.75" />
-            <rect x={x} y={height - orgH - dmH} width={w} height={dmH} fill={dmColor} opacity="0.85" />
-          </g>
-        );
-      })}
-      <path d={revPath} fill="none" stroke={revColor} strokeWidth="2" />
-      {revPts.map((p, i) => <circle key={i} cx={p[0]} cy={p[1]} r="3" fill={revColor} />)}
-      {data.map((d, i) => (
-        <text key={i} x={i * bw + bw / 2} y={height + 16} textAnchor="middle" fontSize="9" fontFamily="IBM Plex Mono, monospace" fill="currentColor" opacity="0.55">{d.month}</text>
-      ))}
-      {[0, 0.5, 1].map((t, i) => (
-        <text key={i} x={WIDTH + 10} y={height - t * height + 3} fontSize="9" fontFamily="IBM Plex Mono, monospace" fill={revColor} opacity="0.8">${Math.round(maxRev * t)}</text>
-      ))}
-    </svg>
-  );
-}
-
-function Sparkline({ data = [], color = "currentColor" }) {
-  const WIDTH = 80; const HEIGHT = 20;
-  if (!data || data.length < 2) return <div style={{ width: WIDTH, height: HEIGHT }} />;
-  const max = Math.max(...data, 1);
-  const pts = data.map((v, i) => [(i / (data.length - 1)) * WIDTH, HEIGHT - (v / max) * HEIGHT]);
-  const path = pts.map((p, i) => `${i === 0 ? "M" : "L"}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(" ");
-  return (
-    <svg width={WIDTH} height={HEIGHT} viewBox={`0 0 ${WIDTH} ${HEIGHT}`} style={{ display: "block" }}>
-      <path d={`${path} L${WIDTH},${HEIGHT} L0,${HEIGHT} Z`} fill={color} opacity="0.15" />
+    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style={{display:"block",flexShrink:0}}>
+      <path d={`${path} L${W},${H} L0,${H} Z`} fill={color} opacity="0.15" />
       <path d={path} fill="none" stroke={color} strokeWidth="1.2" />
     </svg>
   );
-}
+};
 
-function DecayDial({ score = 0, size = 68, color }) {
-  const r = size / 2 - 5;
-  const c = 2 * Math.PI * r;
-  const offset = c - (score / 100) * c;
-  return (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="currentColor" strokeWidth="2" opacity="0.12" />
-      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth="2.5"
-        strokeDasharray={c} strokeDashoffset={offset}
-        transform={`rotate(-90 ${size/2} ${size/2})`} strokeLinecap="round" />
-      <text x={size/2} y={size/2 + 4} textAnchor="middle" fontSize={size * 0.34}
-        fontFamily="Instrument Serif, serif" fontStyle="italic" fill="currentColor">{score}</text>
-    </svg>
-  );
-}
-
-function WaterfallBars({ items = [], color, negColor }) {
-  return (
-    <div>
-      {items.map((item, i) => {
-        const pct = item.max > 0 ? Math.abs(item.value) / item.max * 100 : 0;
-        const c = item.value >= 0 ? color : negColor;
-        return (
-          <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 16, alignItems: "center", padding: "10px 0", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-            <div>
-              <div style={{ fontSize: 13, marginBottom: 4 }}>{item.label}</div>
-              <div style={{ height: 6, background: "rgba(255,255,255,0.06)", position: "relative", borderRadius: 2 }}>
-                <div style={{ width: `${pct}%`, height: "100%", background: c, opacity: item.muted ? 0.5 : 1, borderRadius: 2 }} />
-              </div>
-            </div>
-            <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 13, color: c, minWidth: 100, textAlign: "right" }}>
-              {item.value >= 0 ? "+" : "-"}{formatUSD(Math.abs(item.value))}
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
+// ════════════════════════════════════════════════════════════════
+//  STATUS DOT
+// ════════════════════════════════════════════════════════════════
+function StatusDot({status, A, size=7}) {
+  const c = status==="active"?"#f79448":status==="completed"?"#2dd4a7":A?.dm||"#556072";
+  return <span style={{width:size,height:size,borderRadius:"50%",background:c,display:"inline-block",flexShrink:0}} />;
 }
 
 // ════════════════════════════════════════════════════════════════
-//  UI PRIMITIVES
+//  BADGE
 // ════════════════════════════════════════════════════════════════
-function LegendItem({ color, label }) {
+function Badge({status}) {
+  const cfg = {
+    active:    {label:"DM Activo",  bg:"rgba(247,148,72,0.15)", color:"#f79448",  border:"rgba(247,148,72,0.3)"},
+    completed: {label:"Completado", bg:"rgba(45,212,167,0.15)", color:"#2dd4a7",  border:"rgba(45,212,167,0.3)"},
+    candidate: {label:"Candidato",  bg:"rgba(167,139,250,0.15)",color:"#a78bfa",  border:"rgba(167,139,250,0.3)"},
+    none:      {label:"Idle",       bg:"rgba(122,132,148,0.15)",color:"#7a8494",  border:"rgba(122,132,148,0.3)"},
+  };
+  const c = cfg[status] || cfg.none;
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-      <span style={{ width: 10, height: 10, borderRadius: 2, background: color }} />
-      <span>{label}</span>
-    </div>
+    <span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:c.bg,color:c.color,border:`1px solid ${c.border}`,fontFamily:"IBM Plex Mono,monospace",letterSpacing:"0.03em",whiteSpace:"nowrap"}}>
+      {c.label}
+    </span>
   );
-}
-
-function FilterChip({ children, T, A, accent, onClick, active }) {
-  return (
-    <div onClick={onClick} style={{
-      padding: "5px 10px", fontSize: 11, fontFamily: "IBM Plex Mono, monospace",
-      background: active || accent ? `${accent || A.dm}18` : T.panel2,
-      border: `1px solid ${active || accent ? (accent || A.dm) : T.border}`,
-      borderRadius: 20, color: accent || (active ? A.dm : T.fgSoft), letterSpacing: "0.03em",
-      cursor: onClick ? "pointer" : "default",
-    }}>{children}</div>
-  );
-}
-
-function ToggleGroup({ T, A, options, active, onChange }) {
-  return (
-    <div style={{ display: "flex", border: `1px solid ${T.border}`, borderRadius: 20, overflow: "hidden" }}>
-      {options.map(o => (
-        <div key={o} onClick={() => onChange?.(o)} style={{
-          padding: "5px 12px", fontSize: 11,
-          background: o === active ? T.fg : "transparent",
-          color: o === active ? T.bg : T.muted,
-          cursor: "pointer",
-        }}>{o}</div>
-      ))}
-    </div>
-  );
-}
-
-function TabPill({ children, active, T, A, onClick }) {
-  return (
-    <div onClick={onClick} style={{
-      padding: "6px 12px", fontSize: 12, borderRadius: 4,
-      background: active ? "rgba(255,255,255,0.06)" : "transparent",
-      color: active ? T.fg : T.muted,
-      border: active ? `1px solid ${T.border}` : "1px solid transparent",
-      cursor: "pointer",
-    }}>{children}</div>
-  );
-}
-
-function Stat({ T, label, value, alt, color }) {
-  return (
-    <div style={{ padding: "16px 18px", background: T.panel }}>
-      <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 10, color: T.muted, letterSpacing: "0.1em", marginBottom: 8 }}>
-        {label.toUpperCase()}
-      </div>
-      <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 22, color: color || T.fg, fontWeight: 500 }}>
-        {value}
-      </div>
-      <div style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>{alt}</div>
-    </div>
-  );
-}
-
-function WeeklyStack({ T, A, track }) {
-  const weeks = 8;
-  const data = React.useMemo(() => Array.from({ length: weeks }, (_, i) => {
-    const wIdx = (track.organic?.length ?? 0) - weeks + i;
-    const org = (track.organic?.[wIdx] ?? 0);
-    const alg = (track.algorithmic?.[wIdx] ?? 0);
-    const total = org + alg;
-    const algPct = total > 0 ? Math.round((alg / total) * 100) : 0;
-    return { org, alg, algPct, total };
-  }), [track]);
-  const maxTotal = Math.max(...data.map(d => d.total), 1);
-  return (
-    <div style={{ display: "grid", gridTemplateColumns: `repeat(${weeks}, 1fr)`, gap: 4 }}>
-      {data.map((d, i) => {
-        const h = 80 * (d.total / maxTotal);
-        const algH = h * (d.algPct / 100);
-        const isLatest = i === data.length - 1;
-        return (
-          <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
-            <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 10.5, color: isLatest ? A.dm : T.fgSoft, fontWeight: 500 }}>
-              {d.algPct}%
-            </div>
-            <div style={{ width: "100%", height: 86, display: "flex", flexDirection: "column", justifyContent: "flex-end", background: "rgba(255,255,255,0.02)", borderRadius: 3, overflow: "hidden" }}>
-              <div style={{ height: algH, background: A.dm, opacity: isLatest ? 1 : 0.85 }} />
-              <div style={{ height: h - algH, background: A.org, opacity: isLatest ? 1 : 0.75 }} />
-            </div>
-            <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 9.5, color: T.muted }}>W-{weeks - i}</div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function StatusDot({ status, A }) {
-  const c = status === "dm_active" ? A.dm : status === "completed" ? A.org : "#556072";
-  return <span style={{ width: 7, height: 7, borderRadius: "50%", background: c, display: "inline-block", flexShrink: 0, marginTop: 1 }} />;
 }
 
 // ════════════════════════════════════════════════════════════════
 //  SIDEBAR
 // ════════════════════════════════════════════════════════════════
-function Sidebar({ tracks = [], selectedId, onSelect, query, onQuery, filter, onFilter, sortBy, onSort, collapsed, T, A, catalog }) {
-  const kbdStyle = { display:"inline-flex", alignItems:"center", justifyContent:"center", minWidth:16, height:16, padding:"0 4px", fontSize:10, background:"rgba(255,255,255,0.08)", border:`1px solid ${T.border}`, borderRadius:3, color:T.muted, fontFamily:"IBM Plex Mono,monospace" };
+const ARTISTS = ["Downtown", "DPR"];
+const ARTIST_LABELS = { Downtown: "No Te Va Gustar", DPR: "DPR IAN" };
 
-  const sortOptions = ["streams","lift","momentum","az"];
-  const sortLabels  = { streams:"Streams ↓", lift:"Lift DM ↓", momentum:"Momentum ↓", az:"A–Z" };
+function Sidebar({ catalog, selectedId, onSelect, artist, onArtist, query, onQuery, filter, onFilter, sortBy, onSort, collapsed, T, A }) {
+  const kbdS = {display:"inline-flex",alignItems:"center",justifyContent:"center",minWidth:16,height:16,padding:"0 4px",fontSize:10,background:"rgba(255,255,255,0.08)",border:`1px solid ${T.border}`,borderRadius:3,color:T.muted,fontFamily:"IBM Plex Mono,monospace"};
 
   const counts = {
-    all: tracks.length,
-    active: tracks.filter(t => t.displayStatus === "dm_active").length,
-    completed: tracks.filter(t => t.displayStatus === "completed").length,
-    idle: tracks.filter(t => t.displayStatus === "idle").length,
+    all: catalog.length,
+    active: catalog.filter(t=>t.status==="active").length,
+    completed: catalog.filter(t=>t.status==="completed").length,
+    idle: catalog.filter(t=>t.status==="none"||t.status==="candidate").length,
   };
 
-  const filtered = tracks
+  const sorted = catalog
     .filter(t => {
-      if (filter === "active"    && t.displayStatus !== "dm_active")  return false;
-      if (filter === "completed" && t.displayStatus !== "completed") return false;
-      if (filter === "idle"      && t.displayStatus !== "idle")      return false;
-      if (query && !t.title?.toLowerCase().includes(query.toLowerCase()) &&
-                   !t.name?.toLowerCase().includes(query.toLowerCase())) return false;
+      if (filter==="active"    && t.status!=="active")                         return false;
+      if (filter==="completed" && t.status!=="completed")                      return false;
+      if (filter==="idle"      && t.status!=="none" && t.status!=="candidate") return false;
+      if (query && !t.name?.toLowerCase().includes(query.toLowerCase()))       return false;
       return true;
     })
-    .sort((a, b) => {
-      if (sortBy === "az")       return (a.title || a.name || "").localeCompare(b.title || b.name || "");
-      if (sortBy === "lift")     return (b.dmLift || 0) - (a.dmLift || 0);
-      if (sortBy === "momentum") return (b.momentum || 0) - (a.momentum || 0);
-      return (b.currentWeekly || 0) - (a.currentWeekly || 0);
+    .sort((a,b) => {
+      if (sortBy==="az")       return (a.name||"").localeCompare(b.name||"");
+      if (sortBy==="lift")     return (b.dm?.liftPct||0) - (a.dm?.liftPct||0);
+      if (sortBy==="momentum") return (b.metrics?.mom4w||0) - (a.metrics?.mom4w||0);
+      const aAvg = a.metrics?.avgStreams || a.history?.at(-1)?.streams || 0;
+      const bAvg = b.metrics?.avgStreams || b.history?.at(-1)?.streams || 0;
+      return bAvg - aAvg;
     });
 
   if (collapsed) {
     return (
-      <div style={{ width: 60, background: T.panel, borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", alignItems: "center", paddingTop: 20, gap: 16 }}>
-        <div style={{ width: 28, height: 28, borderRadius: "50%", background: `linear-gradient(135deg, ${A.dm}, ${A.org})`, flexShrink: 0 }} />
+      <div style={{width:60,background:T.panel,borderRight:`1px solid ${T.border}`,display:"flex",flexDirection:"column",alignItems:"center",paddingTop:20,gap:16,flexShrink:0}}>
+        <div style={{width:28,height:28,borderRadius:"50%",background:"linear-gradient(135deg,#f79448,#2dd4a7)"}} />
       </div>
     );
   }
 
   return (
-    <div style={{ width: 280, background: T.panel, borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", height: "100vh", overflow: "hidden" }}>
-      {/* Header */}
-      <div style={{ padding: "16px 16px 12px", borderBottom: `1px solid ${T.border}` }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-          <div style={{ width: 28, height: 28, borderRadius: "50%", background: `linear-gradient(135deg, ${A.dm}, ${A.org})`, flexShrink: 0 }} />
-          <div>
-            <div style={{ fontFamily: "Instrument Serif, serif", fontStyle: "italic", fontSize: 15, color: A.dm, lineHeight: 1.1 }}>
-              {catalog?.artist ?? "NTVG"}
+    <div style={{width:280,background:T.panel,borderRight:`1px solid ${T.border}`,display:"flex",flexDirection:"column",height:"100vh",overflow:"hidden",flexShrink:0}}>
+      {/* Header — logo + artist selector */}
+      <div style={{padding:"14px 16px 10px",borderBottom:`1px solid ${T.border}`}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+          <div style={{width:28,height:28,borderRadius:"50%",background:"linear-gradient(135deg,#f79448,#2dd4a7)",flexShrink:0}} />
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontFamily:"Instrument Serif,serif",fontStyle:"italic",fontSize:14,color:A.dm,lineHeight:1.1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+              {ARTIST_LABELS[artist] || artist}
             </div>
-            <div style={{ fontSize: 10, color: T.muted, fontFamily: "IBM Plex Mono, monospace", marginTop: 1 }}>
-              {tracks.length} tracks
+            <div style={{fontSize:10,color:T.muted,fontFamily:"IBM Plex Mono,monospace",marginTop:2}}>
+              {catalog.length} tracks
             </div>
           </div>
         </div>
+        {/* Artist switcher */}
+        <div style={{display:"flex",gap:4,marginBottom:10}}>
+          {ARTISTS.map(a => (
+            <button key={a} onClick={()=>onArtist(a)} style={{
+              flex:1, padding:"4px 0", fontSize:11, fontWeight:500,
+              background: artist===a ? A.dm : "transparent",
+              color: artist===a ? "#0b0f14" : T.muted,
+              border:`1px solid ${artist===a ? A.dm : T.border}`,
+              borderRadius:4, cursor:"pointer", fontFamily:"IBM Plex Mono,monospace",
+            }}>{a}</button>
+          ))}
+        </div>
         {/* Search */}
-        <div style={{ position: "relative" }}>
-          <span style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", color: T.muted, fontSize: 12 }}>🔍</span>
-          <input
-            value={query} onChange={e => onQuery(e.target.value)}
-            placeholder="Buscar track..."
-            style={{
-              width: "100%", padding: "7px 10px 7px 28px", fontSize: 12,
-              background: T.panel2, border: `1px solid ${T.border}`, borderRadius: 6,
-              color: T.fg, outline: "none", boxSizing: "border-box",
-              fontFamily: "Inter, sans-serif",
-            }}
-          />
+        <div style={{position:"relative"}}>
+          <span style={{position:"absolute",left:8,top:"50%",transform:"translateY(-50%)",color:T.muted,fontSize:11}}>⌕</span>
+          <input value={query} onChange={e=>onQuery(e.target.value)} placeholder="Buscar track..."
+            style={{width:"100%",padding:"7px 10px 7px 26px",fontSize:12,background:T.panel2,border:`1px solid ${T.border}`,borderRadius:6,color:T.fg,outline:"none",boxSizing:"border-box",fontFamily:"Inter,sans-serif"}} />
         </div>
       </div>
 
-      {/* Filters */}
-      <div style={{ padding: "10px 16px 6px", borderBottom: `1px solid ${T.border}` }}>
-        <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 8 }}>
-          {[["all","Todos"],["active","Activos"],["completed","Completados"],["idle","Idle"]].map(([k, label]) => (
-            <button key={k} onClick={() => onFilter(k)} style={{
-              padding: "4px 9px", fontSize: 11, borderRadius: 20,
-              background: filter === k ? `${A.dm}20` : "transparent",
-              border: `1px solid ${filter === k ? A.dm : T.border}`,
-              color: filter === k ? A.dm : T.muted, cursor: "pointer",
-              fontFamily: "IBM Plex Mono, monospace",
-            }}>
-              {label} ({counts[k]})
-            </button>
+      {/* Filters + sort */}
+      <div style={{padding:"8px 14px 6px",borderBottom:`1px solid ${T.border}`}}>
+        <div style={{display:"flex",gap:3,flexWrap:"wrap",marginBottom:7}}>
+          {[["all","Todos"],["active","Activos"],["completed","Completados"],["idle","Idle"]].map(([k,lbl])=>(
+            <button key={k} onClick={()=>onFilter(k)} style={{
+              padding:"3px 8px",fontSize:10.5,borderRadius:20,
+              background:filter===k?`${A.dm}20`:"transparent",
+              border:`1px solid ${filter===k?A.dm:T.border}`,
+              color:filter===k?A.dm:T.muted,cursor:"pointer",fontFamily:"IBM Plex Mono,monospace",
+            }}>{lbl} ({counts[k]})</button>
           ))}
         </div>
-        <select
-          value={sortBy} onChange={e => onSort(e.target.value)}
-          style={{ fontSize: 11, color: T.muted, background: "transparent", border: "none", outline: "none", cursor: "pointer", fontFamily: "IBM Plex Mono, monospace" }}>
-          {sortOptions.map(o => <option key={o} value={o}>{sortLabels[o]}</option>)}
+        <select value={sortBy} onChange={e=>onSort(e.target.value)}
+          style={{fontSize:11,color:T.muted,background:"transparent",border:"none",outline:"none",cursor:"pointer",fontFamily:"IBM Plex Mono,monospace"}}>
+          <option value="streams">Streams ↓</option>
+          <option value="lift">Lift DM ↓</option>
+          <option value="momentum">Momentum ↓</option>
+          <option value="az">A–Z</option>
         </select>
       </div>
 
       {/* Track list */}
-      <div style={{ flex: 1, overflowY: "auto" }}>
-        {filtered.map(t => {
-          const isSel = t.id === selectedId;
-          const sparkData = (t.organic ?? []).slice(-20);
+      <div style={{flex:1,overflowY:"auto"}}>
+        {sorted.map(t => {
+          const sel = t.id===selectedId;
+          const mom = t.metrics?.mom4w ?? 0;
           return (
-            <div key={t.id} onClick={() => onSelect(t.id)} style={{
-              display: "flex", alignItems: "center", gap: 10,
-              padding: "9px 14px 9px 10px",
-              background: isSel ? `${A.dm}10` : "transparent",
-              borderLeft: `3px solid ${isSel ? A.dm : "transparent"}`,
-              cursor: "pointer", transition: "background 100ms",
+            <div key={t.id} onClick={()=>onSelect(t.id)} style={{
+              display:"flex",alignItems:"center",gap:8,padding:"8px 14px 8px 10px",
+              background:sel?`${A.dm}10`:"transparent",
+              borderLeft:`3px solid ${sel?A.dm:"transparent"}`,cursor:"pointer",
             }}
-            onMouseEnter={e => { if (!isSel) e.currentTarget.style.background = "rgba(255,255,255,0.04)"; }}
-            onMouseLeave={e => { if (!isSel) e.currentTarget.style.background = "transparent"; }}>
-              <StatusDot status={t.displayStatus} A={A} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 12.5, fontWeight: 500, color: T.fg, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                  {t.title || t.name}
+            onMouseEnter={e=>{if(!sel)e.currentTarget.style.background="rgba(255,255,255,0.04)";}}
+            onMouseLeave={e=>{if(!sel)e.currentTarget.style.background="transparent";}}>
+              <StatusDot status={t.status} A={A} />
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:12.5,fontWeight:500,color:T.fg,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+                  {t.name}
                 </div>
-                <div style={{ fontSize: 10.5, color: T.muted, fontFamily: "IBM Plex Mono, monospace", marginTop: 1 }}>
-                  {t.momentum >= 0 ? "+" : ""}{t.momentum?.toFixed(1) ?? "0.0"}%
+                <div style={{fontSize:10.5,color:T.muted,fontFamily:"IBM Plex Mono,monospace",marginTop:1}}>
+                  {mom>=0?"+":""}{mom.toFixed(1)}%
                 </div>
               </div>
-              <Sparkline data={sparkData} color={t.displayStatus === "dm_active" ? A.dm : A.org} />
-              <div style={{
-                fontSize: 10, padding: "2px 6px", borderRadius: 3,
-                background: t.displayStatus === "dm_active" ? `${A.dm}20` : t.displayStatus === "completed" ? `${A.org}20` : `${T.mutedSoft}30`,
-                color: t.displayStatus === "dm_active" ? A.dm : t.displayStatus === "completed" ? A.org : T.muted,
-                fontFamily: "IBM Plex Mono, monospace",
-              }}>
-                {t.displayStatus === "dm_active" ? "DM" : t.displayStatus === "completed" ? "✓" : "—"}
+              <MiniSparkline history={t.history||[]} color={t.status==="active"?A.dm:A.org} />
+              <div style={{fontSize:9.5,padding:"2px 5px",borderRadius:3,background:t.status==="active"?`${A.dm}20`:t.status==="completed"?`${A.org}20`:`${T.mutedSoft}30`,color:t.status==="active"?A.dm:t.status==="completed"?A.org:T.muted,fontFamily:"IBM Plex Mono,monospace",flexShrink:0}}>
+                {t.status==="active"?"DM":t.status==="completed"?"✓":"—"}
               </div>
             </div>
           );
         })}
+        {sorted.length===0 && (
+          <div style={{padding:20,textAlign:"center",color:T.muted,fontSize:12}}>Sin tracks</div>
+        )}
       </div>
 
       {/* Footer hints */}
-      <div style={{ padding: "8px 14px", borderTop: `1px solid ${T.border}`, display: "flex", gap: 10, alignItems: "center" }}>
-        <span style={{ ...kbdStyle }}>↑↓</span>
-        <span style={{ fontSize: 10, color: T.muted }}>track</span>
-        <span style={{ ...kbdStyle }}>⌘K</span>
-        <span style={{ fontSize: 10, color: T.muted }}>saltar</span>
+      <div style={{padding:"7px 12px",borderTop:`1px solid ${T.border}`,display:"flex",gap:8,alignItems:"center"}}>
+        <span style={kbdS}>↑↓</span><span style={{fontSize:10,color:T.muted}}>navegar</span>
+        <span style={kbdS}>⌘K</span><span style={{fontSize:10,color:T.muted}}>buscar</span>
+        <span style={kbdS}>[</span><span style={{fontSize:10,color:T.muted}}>colapsar</span>
       </div>
     </div>
   );
@@ -1641,90 +1282,66 @@ function Sidebar({ tracks = [], selectedId, onSelect, query, onQuery, filter, on
 // ════════════════════════════════════════════════════════════════
 //  TOP BAR
 // ════════════════════════════════════════════════════════════════
-function TopBar({ track, tracks, selectedId, onSelect, view, onView, cmdOpen, onCmd, onAction, T, A }) {
-  const [actionsOpen, setActionsOpen] = React.useState(false);
-  const kbdStyle = { display:"inline-flex", alignItems:"center", justifyContent:"center", minWidth:16, height:15, padding:"0 4px", fontSize:9.5, background:"rgba(255,255,255,0.08)", border:`1px solid ${T.border}`, borderRadius:3, color:T.muted, fontFamily:"IBM Plex Mono,monospace" };
-
-  const idx = tracks.findIndex(t => t.id === selectedId);
-  const canPrev = idx > 0;
-  const canNext = idx < tracks.length - 1;
-
-  const views = [
-    { id: "dashboard",   label: "◐ Decay",       kbd: "1" },
-    { id: "dm-audit",    label: "⊙ DM Audit",    kbd: "2" },
-    { id: "performance", label: "↗ Performance", kbd: "3" },
+function TopBar({ track, tracks, selectedId, onSelect, tab, onTab, onCmd, onAction, T, A }) {
+  const [actOpen, setActOpen] = React.useState(false);
+  const kbdS = {display:"inline-flex",alignItems:"center",justifyContent:"center",minWidth:14,height:14,padding:"0 3px",fontSize:9,background:"rgba(255,255,255,0.08)",border:`1px solid ${T.border}`,borderRadius:3,color:T.muted,fontFamily:"IBM Plex Mono,monospace"};
+  const idx = tracks.findIndex(t=>t.id===selectedId);
+  const tabs = [
+    {id:"decay",   label:"◐ Decay",    kbd:"1"},
+    {id:"audit",   label:"⊙ DM Audit", kbd:"2"},
+    {id:"perf",    label:"↗ Perf.",    kbd:"3"},
   ];
-
-  const actions = ["Abrir en Spotify", "Pausar DM", "Duplicar campaña", "Programar reporte", "Exportar CSV"];
-
+  const actions = ["Abrir en Spotify","Pausar/Activar DM","Duplicar campaña","Programar reporte","Exportar CSV"];
   return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 16px", height: 48, borderBottom: `1px solid ${T.border}`, background: T.panel, flexShrink: 0 }}>
-      {/* Left: breadcrumb + nav + track chip */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <span style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 10.5, color: T.muted, letterSpacing: "0.1em" }}>CATÁLOGO /</span>
-        <button onClick={() => canPrev && onSelect(tracks[idx - 1].id)} disabled={!canPrev}
-          style={{ padding: "4px 8px", fontSize: 12, background: "transparent", border: `1px solid ${T.border}`, borderRadius: 4, color: canPrev ? T.fgSoft : T.mutedSoft, cursor: canPrev ? "pointer" : "not-allowed" }}>↑</button>
-        <button onClick={() => canNext && onSelect(tracks[idx + 1].id)} disabled={!canNext}
-          style={{ padding: "4px 8px", fontSize: 12, background: "transparent", border: `1px solid ${T.border}`, borderRadius: 4, color: canNext ? T.fgSoft : T.mutedSoft, cursor: canNext ? "pointer" : "not-allowed" }}>↓</button>
+    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 14px",height:46,borderBottom:`1px solid ${T.border}`,background:T.panel,flexShrink:0,gap:8}}>
+      {/* Left */}
+      <div style={{display:"flex",alignItems:"center",gap:6,minWidth:0}}>
+        <span style={{fontFamily:"IBM Plex Mono,monospace",fontSize:10,color:T.muted,letterSpacing:"0.1em",flexShrink:0}}>CATÁLOGO /</span>
+        <button onClick={()=>idx>0&&onSelect(tracks[idx-1].id)} disabled={idx<=0}
+          style={{padding:"3px 7px",fontSize:11,background:"transparent",border:`1px solid ${T.border}`,borderRadius:4,color:idx>0?T.fgSoft:T.mutedSoft,cursor:idx>0?"pointer":"not-allowed",flexShrink:0}}>↑</button>
+        <button onClick={()=>idx<tracks.length-1&&onSelect(tracks[idx+1].id)} disabled={idx>=tracks.length-1}
+          style={{padding:"3px 7px",fontSize:11,background:"transparent",border:`1px solid ${T.border}`,borderRadius:4,color:idx<tracks.length-1?T.fgSoft:T.mutedSoft,cursor:idx<tracks.length-1?"pointer":"not-allowed",flexShrink:0}}>↓</button>
         {track && (
-          <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", background: T.panel2, border: `1px solid ${T.border}`, borderRadius: 20 }}>
-            <StatusDot status={track.displayStatus} A={A} />
-            <span style={{ fontSize: 12.5, fontWeight: 500, color: T.fg, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {track.title || track.name}
+          <div style={{display:"flex",alignItems:"center",gap:6,padding:"4px 10px",background:T.panel2,border:`1px solid ${T.border}`,borderRadius:20,minWidth:0}}>
+            <StatusDot status={track.status} A={A} />
+            <span style={{fontSize:12.5,fontWeight:500,color:T.fg,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:200}}>
+              {track.name}
             </span>
-            <span style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 10, color: T.muted }}>
-              {idx + 1}/{tracks.length}
+            <span style={{fontFamily:"IBM Plex Mono,monospace",fontSize:10,color:T.muted,flexShrink:0}}>
+              {idx+1}/{tracks.length}
             </span>
           </div>
         )}
       </div>
-
-      {/* Center: tabs */}
-      <div style={{ display: "flex", gap: 2 }}>
-        {views.map(v => (
-          <button key={v.id} onClick={() => onView(v.id)} style={{
-            display: "flex", alignItems: "center", gap: 6,
-            padding: "6px 14px", fontSize: 12.5, borderRadius: 6,
-            background: view === v.id ? "rgba(255,255,255,0.08)" : "transparent",
-            color: view === v.id ? T.fg : T.muted,
-            border: view === v.id ? `1px solid ${T.border}` : "1px solid transparent",
-            cursor: "pointer", fontFamily: "Inter, sans-serif",
+      {/* Center — tabs */}
+      <div style={{display:"flex",gap:2,flexShrink:0}}>
+        {tabs.map(v=>(
+          <button key={v.id} onClick={()=>onTab(v.id)} style={{
+            display:"flex",alignItems:"center",gap:5,padding:"5px 12px",fontSize:12,borderRadius:6,
+            background:tab===v.id?"rgba(255,255,255,0.08)":"transparent",
+            color:tab===v.id?T.fg:T.muted,
+            border:tab===v.id?`1px solid ${T.border}`:"1px solid transparent",cursor:"pointer",
           }}>
             {v.label}
-            <span style={{ ...kbdStyle }}>{v.kbd}</span>
+            <span style={kbdS}>{v.kbd}</span>
           </button>
         ))}
       </div>
-
-      {/* Right: ⌘K + Acciones */}
-      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        <button onClick={onCmd} style={{
-          display: "flex", alignItems: "center", gap: 5,
-          padding: "5px 10px", fontSize: 12, borderRadius: 6,
-          background: "transparent", border: `1px solid ${T.border}`, color: T.muted, cursor: "pointer",
-        }}>
-          <span style={{ ...kbdStyle }}>⌘K</span>
+      {/* Right */}
+      <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+        <button onClick={onCmd} style={{display:"flex",alignItems:"center",gap:4,padding:"4px 9px",fontSize:11,background:"transparent",border:`1px solid ${T.border}`,borderRadius:5,color:T.muted,cursor:"pointer"}}>
+          <span style={kbdS}>⌘K</span>
         </button>
-        <div style={{ position: "relative" }}>
-          <button onClick={() => setActionsOpen(o => !o)} style={{
-            padding: "6px 14px", fontSize: 12.5, fontWeight: 600,
-            background: A.dm, border: "none", borderRadius: 6, color: "#0b0f14", cursor: "pointer",
-          }}>Acciones</button>
-          {actionsOpen && (
-            <div onClick={() => setActionsOpen(false)} style={{
-              position: "absolute", right: 0, top: "calc(100% + 6px)", zIndex: 100,
-              background: T.panel, border: `1px solid ${T.border}`, borderRadius: 8,
-              boxShadow: "0 12px 40px rgba(0,0,0,0.4)", minWidth: 200, overflow: "hidden",
-            }}>
-              {actions.map(a => (
-                <button key={a} onClick={() => onAction(a)} style={{
-                  display: "block", width: "100%", textAlign: "left",
-                  padding: "10px 14px", fontSize: 13, color: T.fgSoft,
-                  background: "transparent", border: "none", cursor: "pointer",
-                  borderBottom: `1px solid ${T.border}`,
-                }}
-                onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,0.04)"}
-                onMouseLeave={e => e.currentTarget.style.background = "transparent"}>{a}</button>
+        <div style={{position:"relative"}}>
+          <button onClick={()=>setActOpen(o=>!o)} style={{padding:"5px 13px",fontSize:12,fontWeight:600,background:A.dm,border:"none",borderRadius:5,color:"#0b0f14",cursor:"pointer"}}>
+            Acciones
+          </button>
+          {actOpen && (
+            <div onClick={()=>setActOpen(false)} style={{position:"absolute",right:0,top:"calc(100% + 5px)",zIndex:100,background:T.panel,border:`1px solid ${T.border}`,borderRadius:8,boxShadow:"0 12px 40px rgba(0,0,0,0.4)",minWidth:200,overflow:"hidden"}}>
+              {actions.map(a=>(
+                <button key={a} onClick={()=>onAction(a)} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 14px",fontSize:12.5,color:T.fgSoft,background:"transparent",border:"none",cursor:"pointer",borderBottom:`1px solid ${T.border}`}}
+                onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.04)"}
+                onMouseLeave={e=>e.currentTarget.style.background="transparent"}>{a}</button>
               ))}
             </div>
           )}
@@ -1737,70 +1354,43 @@ function TopBar({ track, tracks, selectedId, onSelect, view, onView, cmdOpen, on
 // ════════════════════════════════════════════════════════════════
 //  COMMAND PALETTE
 // ════════════════════════════════════════════════════════════════
-function CommandPalette({ tracks = [], open, onClose, onSelect, onView, T, A }) {
+function CommandPalette({ tracks=[], open, onClose, onSelect, onTab, T, A }) {
   const [q, setQ] = React.useState("");
-  const inputRef = React.useRef(null);
-
-  React.useEffect(() => {
-    if (open) { setQ(""); setTimeout(() => inputRef.current?.focus(), 50); }
-  }, [open]);
-
+  const ref = React.useRef(null);
+  React.useEffect(()=>{ if(open){setQ("");setTimeout(()=>ref.current?.focus(),50);}}, [open]);
   if (!open) return null;
-
-  const shortViews = [
-    { id:"dashboard", label:"Decay View", hint:"1" },
-    { id:"dm-audit",  label:"DM Audit",   hint:"2" },
-    { id:"performance", label:"Performance", hint:"3" },
-  ];
-
-  const filteredTracks = tracks.filter(t =>
-    !q || (t.title || t.name || "").toLowerCase().includes(q.toLowerCase())
-  ).slice(0, 8);
-
+  const ftracks = tracks.filter(t=>!q||t.name?.toLowerCase().includes(q.toLowerCase())).slice(0,10);
+  const vistas = [{id:"decay",label:"Decay View"},{id:"audit",label:"DM Audit"},{id:"perf",label:"Performance"}];
   return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: 120, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)" }}>
-      <div onClick={e => e.stopPropagation()} style={{
-        width: 560, background: T.panel, border: `1px solid ${T.borderStrong}`, borderRadius: 10,
-        boxShadow: "0 30px 80px rgba(0,0,0,0.5)", overflow: "hidden",
-      }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", borderBottom: `1px solid ${T.border}` }}>
-          <span style={{ color: T.muted, fontSize: 14 }}>🔍</span>
-          <input ref={inputRef} value={q} onChange={e => setQ(e.target.value)}
-            placeholder="Buscar track o vista..."
-            style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: T.fg, fontSize: 14, fontFamily: "Inter, sans-serif" }}
-          />
-          <span style={{ padding: "2px 6px", fontSize: 10, background: T.panel2, border: `1px solid ${T.border}`, borderRadius: 4, color: T.muted, fontFamily: "IBM Plex Mono, monospace" }}>Esc</span>
+    <div onClick={onClose} style={{position:"fixed",inset:0,zIndex:200,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:120,background:"rgba(0,0,0,0.5)",backdropFilter:"blur(4px)"}}>
+      <div onClick={e=>e.stopPropagation()} style={{width:540,background:T.panel,border:`1px solid ${T.borderStrong}`,borderRadius:10,boxShadow:"0 30px 80px rgba(0,0,0,0.5)",overflow:"hidden"}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,padding:"11px 14px",borderBottom:`1px solid ${T.border}`}}>
+          <span style={{color:T.muted}}>⌕</span>
+          <input ref={ref} value={q} onChange={e=>setQ(e.target.value)} placeholder="Buscar track o vista..."
+            style={{flex:1,background:"transparent",border:"none",outline:"none",color:T.fg,fontSize:14,fontFamily:"Inter,sans-serif"}} />
+          <span style={{padding:"2px 6px",fontSize:10,background:T.panel2,border:`1px solid ${T.border}`,borderRadius:4,color:T.muted,fontFamily:"IBM Plex Mono,monospace"}}>Esc</span>
         </div>
-        <div style={{ maxHeight: 400, overflowY: "auto" }}>
-          {!q && shortViews.map(v => (
-            <div key={v.id} onClick={() => { onView(v.id); onClose(); }} style={{
-              display: "flex", justifyContent: "space-between", alignItems: "center",
-              padding: "11px 16px", cursor: "pointer", borderBottom: `1px solid ${T.border}`,
-            }}
-            onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,0.04)"}
-            onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <span style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 9, color: T.muted, background: T.panel2, border: `1px solid ${T.border}`, borderRadius: 3, padding: "1px 5px" }}>VISTA</span>
-                <span style={{ fontSize: 13, color: T.fg }}>{v.label}</span>
+        <div style={{maxHeight:380,overflowY:"auto"}}>
+          {!q && vistas.map(v=>(
+            <div key={v.id} onClick={()=>{onTab(v.id);onClose();}} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 14px",cursor:"pointer",borderBottom:`1px solid ${T.border}`}}
+            onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.04)"}
+            onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <span style={{fontFamily:"IBM Plex Mono,monospace",fontSize:9,color:T.muted,background:T.panel2,border:`1px solid ${T.border}`,borderRadius:3,padding:"1px 5px"}}>VISTA</span>
+                <span style={{fontSize:13,color:T.fg}}>{v.label}</span>
               </div>
-              <span style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 11, color: T.muted }}>{v.hint}</span>
             </div>
           ))}
-          {filteredTracks.map(t => (
-            <div key={t.id} onClick={() => { onSelect(t.id); onClose(); }} style={{
-              display: "flex", justifyContent: "space-between", alignItems: "center",
-              padding: "11px 16px", cursor: "pointer", borderBottom: `1px solid ${T.border}`,
-            }}
-            onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,0.04)"}
-            onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <span style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 9, color: T.muted, background: T.panel2, border: `1px solid ${T.border}`, borderRadius: 3, padding: "1px 5px" }}>TRACK</span>
-                <StatusDot status={t.displayStatus} A={A} />
-                <span style={{ fontSize: 13, color: T.fg }}>{t.title || t.name}</span>
+          {ftracks.map(t=>(
+            <div key={t.id} onClick={()=>{onSelect(t.id);onClose();}} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 14px",cursor:"pointer",borderBottom:`1px solid ${T.border}`}}
+            onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.04)"}
+            onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <span style={{fontFamily:"IBM Plex Mono,monospace",fontSize:9,color:T.muted,background:T.panel2,border:`1px solid ${T.border}`,borderRadius:3,padding:"1px 5px"}}>TRACK</span>
+                <StatusDot status={t.status} A={A} size={6} />
+                <span style={{fontSize:13,color:T.fg}}>{t.name}</span>
               </div>
-              <span style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 10, color: T.muted }}>
-                {t.displayStatus === "dm_active" ? "DM activo" : t.displayStatus === "completed" ? "Completado" : "Idle"}
-              </span>
+              <Badge status={t.status} />
             </div>
           ))}
         </div>
@@ -1812,360 +1402,565 @@ function CommandPalette({ tracks = [], open, onClose, onSelect, onView, T, A }) 
 // ════════════════════════════════════════════════════════════════
 //  TOAST
 // ════════════════════════════════════════════════════════════════
-function Toast({ message, T, A }) {
-  if (!message) return null;
+function Toast({ msg, T, A }) {
+  if (!msg) return null;
   return (
-    <div style={{
-      position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)",
-      zIndex: 300, padding: "10px 18px",
-      background: T.panel, border: `1px solid ${A.org}44`, borderRadius: 8,
-      boxShadow: "0 10px 30px rgba(0,0,0,0.4)",
-      display: "flex", alignItems: "center", gap: 8,
-      fontFamily: "Inter, sans-serif", fontSize: 13, color: T.fg,
-      animation: "slideUp 0.2s ease",
-    }}>
-      <span style={{ color: A.org }}>✓</span>
-      {message}
+    <div style={{position:"fixed",bottom:24,left:"50%",transform:"translateX(-50%)",zIndex:300,padding:"10px 18px",background:T.panel,border:`1px solid ${A.org}44`,borderRadius:8,boxShadow:"0 10px 30px rgba(0,0,0,0.4)",display:"flex",alignItems:"center",gap:8,fontFamily:"Inter,sans-serif",fontSize:13,color:T.fg}}>
+      <span style={{color:A.org}}>✓</span>{msg}
     </div>
   );
 }
 
 // ════════════════════════════════════════════════════════════════
-//  DASHBOARD VIEW
+//  DECAY TAB — Interactive Recharts chart + metrics
 // ════════════════════════════════════════════════════════════════
-function DashboardView({ T, A, track }) {
-  const [alertDismissed, setAlertDismissed] = React.useState(false);
-  if (!track) return null;
+const DecayTooltipCustom = ({ active, payload, label, T, A }) => {
+  if (!active || !payload?.length) return null;
+  const total   = payload.find(p=>p.dataKey==="streams")?.value ?? 0;
+  const algo    = payload.find(p=>p.dataKey==="programmedStreams")?.value ?? 0;
+  const organic = total - algo;
+  const algoPct = total>0 ? (algo/total*100).toFixed(1) : "0.0";
+  return (
+    <div style={{background:T?.panel||"#121821",border:"1px solid rgba(255,255,255,0.12)",borderRadius:10,padding:"10px 14px",fontSize:12,minWidth:180,boxShadow:"0 8px 24px rgba(0,0,0,0.4)"}}>
+      <div style={{color:"rgba(255,255,255,0.5)",marginBottom:8,fontFamily:"IBM Plex Mono,monospace",fontSize:10}}>{label}</div>
+      <div style={{display:"flex",justifyContent:"space-between",gap:16,marginBottom:4}}>
+        <span style={{color:"#2dd4a7"}}>● Total</span>
+        <span style={{fontFamily:"IBM Plex Mono,monospace",color:"#e8ecf1"}}>{Math.round(total).toLocaleString("es-AR")}</span>
+      </div>
+      <div style={{display:"flex",justifyContent:"space-between",gap:16,marginBottom:4}}>
+        <span style={{color:"#f79448"}}>▪ Algorítmico</span>
+        <span style={{fontFamily:"IBM Plex Mono,monospace",color:"#f79448"}}>{Math.round(algo).toLocaleString("es-AR")}</span>
+      </div>
+      <div style={{display:"flex",justifyContent:"space-between",gap:16,marginBottom:6}}>
+        <span style={{color:"#2dd4a7"}}>▪ Orgánico</span>
+        <span style={{fontFamily:"IBM Plex Mono,monospace",color:"#2dd4a7"}}>{Math.round(organic).toLocaleString("es-AR")}</span>
+      </div>
+      <div style={{borderTop:"1px solid rgba(255,255,255,0.08)",paddingTop:6,display:"flex",justifyContent:"space-between"}}>
+        <span style={{color:"rgba(255,255,255,0.4)"}}>% Algo</span>
+        <span style={{fontFamily:"IBM Plex Mono,monospace",color:"#f79448"}}>{algoPct}%</span>
+      </div>
+    </div>
+  );
+};
 
-  const classification = track.decayScore >= 70 ? "Alto" : track.decayScore >= 40 ? "Moderado" : track.decayScore >= 20 ? "Bajo" : "Inactivo";
-  const showAlert = !alertDismissed && (track.dmLift ?? 0) < 5 && track.displayStatus === "dm_active";
+function DecayTab({ track, catalog, T, A }) {
+  const [showPop, setShowPop] = React.useState(false);
+
+  const chartData = React.useMemo(() => {
+    if (!track?.history) return [];
+    return track.history.map(d => ({
+      date: fmtDate(d.date),
+      streams: d.streams ?? 0,
+      programmedStreams: d.programmedStreams ?? 0,
+      organic: Math.max(0, (d.streams??0) - (d.programmedStreams??0)),
+      baseline: d.baseline ?? null,
+      pop: track.popMetrics?.lookup?.[d.date] ?? null,
+    }));
+  }, [track]);
+
+  // Downsample for performance (show at most 365 points)
+  const displayData = React.useMemo(() => {
+    if (chartData.length <= 365) return chartData;
+    const step = Math.ceil(chartData.length / 365);
+    return chartData.filter((_, i) => i % step === 0);
+  }, [chartData]);
+
+  const dmStartDate = track?.dmStart != null ? fmtDate(track.history?.[track.dmStart]?.date) : null;
+
+  const lifecycle = React.useMemo(() => detectLifecycle(track), [track]);
+  const similar   = React.useMemo(() => findSimilarTracks(track, catalog, 4), [track, catalog]);
+
+  if (!track) return (
+    <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100%",color:T.muted,flexDirection:"column",gap:8}}>
+      <span style={{fontSize:40}}>◐</span>
+      <span style={{fontSize:14}}>Seleccioná un track</span>
+    </div>
+  );
+
+  const m = track.metrics;
+  const classification = !m ? "—" : m.structK > 0.04 ? "Decay rápido" : m.structK > 0.015 ? "Decay moderado" : m.organicFloor > 0.15 ? "Long-tail" : "Estable";
 
   return (
-    <div style={{ padding: "20px 24px 40px", display: "grid", gap: 16 }}>
-      {/* Main chart card */}
-      <div style={{ background: T.panel, border: `1px solid ${T.border}`, borderRadius: 8, padding: "20px 24px" }}>
-        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 6, flexWrap: "wrap", gap: 8 }}>
+    <div style={{padding:"20px 24px 40px",display:"grid",gap:16}}>
+
+      {/* ── Chart card ─────────────────────────── */}
+      <div style={{background:T.panel,border:`1px solid ${T.border}`,borderRadius:8,padding:"20px 24px"}}>
+        <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:12,flexWrap:"wrap",gap:8}}>
           <div>
-            <div style={{ fontSize: 15, fontWeight: 600 }}>Decay Intelligence Chart — {track.title || track.name}</div>
-            <div style={{ fontSize: 11.5, color: T.muted, marginTop: 3 }}>Streams reales vs. algorítmicos · Datos desde primer día con actividad</div>
+            <div style={{fontSize:15,fontWeight:600}}>Decay Intelligence — {track.name}</div>
+            <div style={{fontSize:11.5,color:T.muted,marginTop:3}}>
+              {chartData.length} días · {m ? `k=${m.structK?.toFixed(4)} · half-life ${m.halfLife}w` : "Sin modelo de decay"}
+            </div>
           </div>
-          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-            {track.dmStartWeek != null && <FilterChip T={T} A={A} accent={A.dm}>⌗ DM activo</FilterChip>}
-            <FilterChip T={T} A={A} accent={A.dm}>◉ Algorítmico</FilterChip>
+          <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+            {dmStartDate && (
+              <span style={{fontSize:10.5,fontFamily:"IBM Plex Mono,monospace",padding:"4px 9px",borderRadius:20,background:`${A.dm}18`,border:`1px solid ${A.dm}44`,color:A.dm}}>⌗ DM desde {dmStartDate}</span>
+            )}
+            <button onClick={()=>setShowPop(o=>!o)} style={{fontSize:10.5,fontFamily:"IBM Plex Mono,monospace",padding:"4px 9px",borderRadius:20,background:showPop?`${A.rev}18`:"transparent",border:`1px solid ${showPop?A.rev:T.border}`,color:showPop?A.rev:T.muted,cursor:"pointer"}}>
+              ★ Popularity
+            </button>
           </div>
         </div>
-        <div style={{ marginTop: 18, color: T.fgSoft }}>
-          <DualAreaChart
-            organic={track.organic ?? []}
-            algorithmic={track.algorithmic ?? []}
-            orgColor={A.org} algColor={A.dm}
-            dmStartWeek={track.displayStatus === "dm_active" ? track.dmStartWeek : undefined}
-            height={260}
-          />
+
+        <div style={{color:T.fgSoft}}>
+          <ResponsiveContainer width="100%" height={260}>
+            <ComposedChart data={displayData} margin={{top:8,right:showPop?50:16,bottom:24,left:12}}>
+              <CartesianGrid strokeDasharray="3 3" stroke={T.border} opacity={0.5} />
+              <XAxis dataKey="date" tick={{fontSize:9,fontFamily:"IBM Plex Mono,monospace",fill:T.muted}}
+                tickFormatter={v=>v.slice(5)} interval={Math.max(1,Math.floor(displayData.length/8))} />
+              <YAxis yAxisId="streams" tick={{fontSize:9,fontFamily:"IBM Plex Mono,monospace",fill:T.muted}}
+                tickFormatter={v=>fmtK(v)} />
+              {showPop && (
+                <YAxis yAxisId="pop" orientation="right" domain={[0,100]}
+                  tick={{fontSize:9,fontFamily:"IBM Plex Mono,monospace",fill:A.rev}}
+                  tickFormatter={v=>`${v}`} />
+              )}
+              <Tooltip content={<DecayTooltipCustom T={T} A={A} />} />
+              {dmStartDate && (
+                <ReferenceLine yAxisId="streams" x={dmStartDate} stroke={A.dm}
+                  strokeDasharray="4 3" strokeWidth={1.5}
+                  label={{value:"DM",fill:A.dm,fontSize:9,fontFamily:"IBM Plex Mono,monospace"}} />
+              )}
+              {track.metrics?.peak != null && track.history && (() => {
+                const peakD = track.history.find(d=>d.streams===track.metrics.peak);
+                return peakD ? (
+                  <ReferenceLine yAxisId="streams" x={fmtDate(peakD.date)} stroke="rgba(255,255,255,0.2)"
+                    strokeDasharray="2 4"
+                    label={{value:"PEAK",fill:"rgba(255,255,255,0.3)",fontSize:8,fontFamily:"IBM Plex Mono,monospace"}} />
+                ) : null;
+              })()}
+              <Area yAxisId="streams" type="monotone" dataKey="organic" name="Orgánico"
+                stackId="s" stroke={A.org} fill={A.org} fillOpacity={0.2} strokeWidth={1.5} dot={false} />
+              <Area yAxisId="streams" type="monotone" dataKey="programmedStreams" name="Algorítmico"
+                stackId="s" stroke={A.dm} fill={A.dm} fillOpacity={0.25} strokeWidth={1.5} dot={false} />
+              {track.metrics?.halfLife < 999 && (
+                <Line yAxisId="streams" type="monotone" dataKey="baseline" name="Baseline"
+                  stroke="rgba(255,255,255,0.25)" strokeWidth={1} dot={false} strokeDasharray="3 3" connectNulls />
+              )}
+              {showPop && (
+                <Line yAxisId="pop" type="monotone" dataKey="pop" name="Popularity"
+                  stroke={A.rev} strokeWidth={1.5} dot={false} connectNulls />
+              )}
+            </ComposedChart>
+          </ResponsiveContainer>
         </div>
-        <div style={{ display: "flex", gap: 24, justifyContent: "center", marginTop: 12, fontFamily: "IBM Plex Mono, monospace", fontSize: 11, color: T.muted }}>
-          <LegendItem color={A.dm} label="Streams Algorítmicos" />
-          <LegendItem color={A.org} label="Streams Orgánicos" />
+
+        <div style={{display:"flex",gap:20,justifyContent:"center",marginTop:8,fontFamily:"IBM Plex Mono,monospace",fontSize:11,color:T.muted,flexWrap:"wrap"}}>
+          {[["Orgánico",A.org],["Algorítmico",A.dm],["Baseline","rgba(255,255,255,0.3)"]].concat(showPop?[["Popularity",A.rev]]:[]).map(([lbl,c])=>(
+            <div key={lbl} style={{display:"flex",alignItems:"center",gap:5}}>
+              <span style={{width:10,height:10,borderRadius:2,background:c}} />{lbl}
+            </div>
+          ))}
         </div>
       </div>
 
-      {/* AI Intel card */}
-      <div style={{ background: T.panel, border: `1px solid ${T.border}`, borderRadius: 8, padding: "20px 24px" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
-          <div style={{ display: "flex", gap: 8 }}>
-            <TabPill T={T} A={A} active>◇ AI Intel</TabPill>
-            <TabPill T={T} A={A}>Long tail</TabPill>
+      {/* ── Metrics grid ─────────────────────────── */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+        {/* Lifecycle + Decay metrics */}
+        <div style={{background:T.panel,border:`1px solid ${T.border}`,borderRadius:8,padding:"18px 20px"}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
+            <div style={{fontSize:13,fontWeight:600}}>Lifecycle</div>
+            {lifecycle && (
+              <span style={{fontSize:12,padding:"3px 10px",borderRadius:20,background:"rgba(255,255,255,0.06)",border:`1px solid ${T.border}`,color:T.fgSoft}}>
+                {lifecycle.label}
+              </span>
+            )}
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-            <div style={{ textAlign: "right" }}>
-              <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 9.5, color: T.muted, letterSpacing: "0.1em" }}>LIFE SCORE</div>
-              <div style={{ fontSize: 12, color: T.fgSoft, marginTop: 2 }}>{classification}</div>
+          {lifecycle?.desc && <div style={{fontSize:11.5,color:T.muted,marginBottom:14}}>{lifecycle.desc}</div>}
+          {m ? (
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:1,background:T.border}}>
+              {[
+                {label:"Decay K",    value:m.structK?.toFixed(4)??  "—", color:m.structK>0.02?A.warn:A.pos},
+                {label:"Half-life",  value:m.halfLife<999?`${m.halfLife}w`: "∞", color:T.fg},
+                {label:"Org. Floor", value:m.organicFloor!=null?`${(m.organicFloor*100).toFixed(1)}%`:"—", color:A.org},
+                {label:"Momentum",   value:fmtPct(m.mom4w), color:m.mom4w>=0?A.pos:A.warn},
+                {label:"Avg Streams",value:fmtK(m.avgStreams??0), color:T.fg},
+                {label:"Peak",       value:fmtK(m.peak??0), color:T.fg},
+              ].map(s=>(
+                <div key={s.label} style={{padding:"12px 14px",background:T.panel}}>
+                  <div style={{fontFamily:"IBM Plex Mono,monospace",fontSize:9.5,color:T.muted,letterSpacing:"0.1em",marginBottom:6}}>{s.label.toUpperCase()}</div>
+                  <div style={{fontFamily:"IBM Plex Mono,monospace",fontSize:18,color:s.color,fontWeight:500}}>{s.value}</div>
+                </div>
+              ))}
             </div>
-            <DecayDial score={track.decayScore} size={68} color={A.dm} />
-          </div>
+          ) : (
+            <div style={{color:T.muted,fontSize:12,padding:"12px 0"}}>Sin datos de decay disponibles</div>
+          )}
         </div>
 
-        {showAlert && (
-          <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", background: `${A.warn}11`, border: `1px solid ${A.warn}33`, borderRadius: 6, marginBottom: 18 }}>
-            <span style={{ width: 8, height: 8, borderRadius: "50%", background: A.warn, flexShrink: 0, boxShadow: `0 0 0 3px ${A.warn}22` }} />
-            <span style={{ fontSize: 12.5, flex: 1 }}>
-              <strong style={{ color: A.warn }}>Sin lift detectado.</strong>{" "}
-              Streams no superan el baseline orgánico — algorítmico {track.algShare?.toFixed(1) ?? 0}% sin generar incremento neto.
-            </span>
-            <button style={{ padding: "5px 10px", background: A.warn, color: "#0b0f14", border: "none", borderRadius: 4, fontSize: 11.5, fontWeight: 600, cursor: "pointer" }}>
-              Revisar campaña →
-            </button>
-            <button onClick={() => setAlertDismissed(true)} style={{ padding: "5px 8px", background: "transparent", color: T.muted, border: `1px solid ${T.border}`, borderRadius: 4, fontSize: 11.5, cursor: "pointer" }}>✕</button>
-          </div>
-        )}
+        {/* DM quick stats + similar tracks */}
+        <div style={{background:T.panel,border:`1px solid ${T.border}`,borderRadius:8,padding:"18px 20px",display:"flex",flexDirection:"column",gap:14}}>
+          <div style={{fontSize:13,fontWeight:600}}>DM Performance</div>
+          {track.status==="active" && track.dm ? (
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:1,background:T.border}}>
+              {[
+                {label:"Lift DM",      value:track.dm.liftPct!=null?fmtPct(track.dm.liftPct):"Sin baseline",color:track.dm.liftPct>0?A.pos:A.warn},
+                {label:"Incremental",  value:track.dm.incremental!=null?fmtInt(track.dm.incremental):"—", color:A.pos},
+                {label:"Revenue Neto", value:track.dm.net!=null?fmtUSD(track.dm.net):"—", color:A.pos},
+                {label:"Comisión",     value:fmtUSD(track.dm.commission??0), color:A.warn},
+                {label:"% Algo",       value:track.dm.algoRatio!=null?`${(track.dm.algoRatio*100).toFixed(1)}%`:"—", color:A.dm},
+                {label:"Algo/día",     value:fmtK(track.dm.campAlgoAvg??0), color:A.dm},
+              ].map(s=>(
+                <div key={s.label} style={{padding:"10px 12px",background:T.panel}}>
+                  <div style={{fontFamily:"IBM Plex Mono,monospace",fontSize:9.5,color:T.muted,letterSpacing:"0.1em",marginBottom:4}}>{s.label.toUpperCase()}</div>
+                  <div style={{fontFamily:"IBM Plex Mono,monospace",fontSize:16,color:s.color,fontWeight:500}}>{s.value}</div>
+                </div>
+              ))}
+            </div>
+          ) : track.status==="completed" && track.dm ? (
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:1,background:T.border}}>
+              {[
+                {label:"Lift Final",   value:track.dm.liftPct!=null?fmtPct(track.dm.liftPct):"—", color:track.dm.liftPct>0?A.pos:A.warn},
+                {label:"Revenue Total",value:track.dm.net!=null?fmtUSD(track.dm.net):"—", color:A.pos},
+                {label:"Post-DM Δ",    value:track.dm.postDmDelta!=null?fmtPct(track.dm.postDmDelta):"—", color:track.dm.postDmDelta>=0?A.pos:A.warn},
+                {label:"Conversión",   value:track.dm.orgConversion!=null?fmtPct(track.dm.orgConversion):"—", color:A.org},
+              ].map(s=>(
+                <div key={s.label} style={{padding:"10px 12px",background:T.panel}}>
+                  <div style={{fontFamily:"IBM Plex Mono,monospace",fontSize:9.5,color:T.muted,letterSpacing:"0.1em",marginBottom:4}}>{s.label.toUpperCase()}</div>
+                  <div style={{fontFamily:"IBM Plex Mono,monospace",fontSize:16,color:s.color,fontWeight:500}}>{s.value}</div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{color:T.muted,fontSize:12,padding:"12px 0"}}>
+              {track.status==="none"?"Track sin DM. ":track.status==="candidate"?"Candidato a DM 🎯. ":""}
+              Usá el Manager para configurar campaña.
+            </div>
+          )}
 
-        <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 10, color: T.muted, letterSpacing: "0.14em", marginBottom: 12 }}>ESTADO ACTUAL</div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 1, background: T.border, marginBottom: 24 }}>
-          <Stat T={T} label="Algorítmico" value={(track.algShare?.toFixed(1) ?? "0.0") + "%"} alt="de streams (8w)" color={A.dm} />
-          <Stat T={T} label="Lift Orgánico" value={formatPct(track.dmLift ?? 0)} alt="vs. baseline" color={(track.dmLift ?? 0) > 0 ? A.pos : A.warn} />
-          <Stat T={T} label="Proyección" value={fmtK(Math.round((track.totalStreams ?? 0) * 0.6))} alt={`/ ${fmtK(track.totalStreams ?? 0)} streams total`} color={T.fg} />
-          <Stat T={T} label="Correlación" value={track.metrics?.structK != null ? `r ${(0.65 + Math.min(0.3, track.metrics.structK * 5)).toFixed(2)}` : "r —"} alt="Alg vs Orgánico" color={T.fg} />
+          {/* Similar tracks */}
+          {similar.length > 0 && (
+            <>
+              <div style={{fontFamily:"IBM Plex Mono,monospace",fontSize:10,color:T.muted,letterSpacing:"0.1em",marginTop:4}}>SIMILARES</div>
+              <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                {similar.slice(0,4).map(t=>(
+                  <div key={t.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"5px 0",borderBottom:`1px solid ${T.border}`}}>
+                    <div style={{display:"flex",alignItems:"center",gap:6}}>
+                      <StatusDot status={t.status} A={A} size={6} />
+                      <span style={{fontSize:12,color:T.fg}}>{t.name}</span>
+                    </div>
+                    <span style={{fontFamily:"IBM Plex Mono,monospace",fontSize:10.5,color:T.muted}}>{t._sim}% sim.</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </div>
-
-        <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 10, color: T.muted, letterSpacing: "0.14em", marginBottom: 12 }}>
-          EVOLUCIÓN ALGORÍTMICA · ÚLTIMAS 8 SEMANAS
-        </div>
-        <WeeklyStack T={T} A={A} track={track} />
       </div>
     </div>
   );
 }
 
 // ════════════════════════════════════════════════════════════════
-//  DM AUDIT VIEW
+//  DM AUDIT TAB
 // ════════════════════════════════════════════════════════════════
-function AuditView({ T, A, track }) {
+function AuditTab({ track, T, A }) {
   if (!track) return null;
-  const wf = buildWaterfallForTrack(track);
-  const hasLift = (track.dmLift ?? 0) > 5;
   const dm = track.dm;
+  const hasLift = (dm?.liftPct ?? 0) > 5;
+
+  if (!dm) {
+    return (
+      <div style={{padding:"40px 24px",textAlign:"center",color:T.muted}}>
+        <div style={{fontSize:32,marginBottom:12}}>⊙</div>
+        <div style={{fontSize:14,fontWeight:600,color:T.fgSoft,marginBottom:8}}>Sin datos de DM</div>
+        <div style={{fontSize:12}}>Este track no tiene campaña Discovery Mode activa o completada.</div>
+      </div>
+    );
+  }
+
+  const wf = (() => {
+    const preDm = Math.round(dm.baseline ?? 0);
+    const enDmAlg = Math.round(dm.campProgObs ?? 0);
+    const enDmOrg = Math.round(dm.campOrgObs ?? 0);
+    const rps = 0.00092;
+    const revBruto = dm.gross != null ? +dm.gross : ((enDmAlg + enDmOrg) * rps);
+    const incAlg = dm.algoGross ?? (enDmAlg * rps);
+    const incOrg = dm.orgGross ?? Math.max(0, (enDmOrg - preDm * 0.5) * rps);
+    const comision = dm.commission ?? 0;
+    const revNeto = dm.net != null ? +dm.net : (revBruto - comision);
+    const totalS = enDmAlg + enDmOrg;
+    return {
+      preDm, enDmAlg, enDmOrg,
+      revBruto: Math.round(revBruto*100)/100,
+      incAlg: Math.round(incAlg*100)/100,
+      incOrg: Math.round(incOrg*100)/100,
+      comision: Math.round(comision*100)/100,
+      revNeto: Math.round(revNeto*100)/100,
+      algShare: totalS > 0 ? Math.round(enDmAlg/totalS*100) : 0,
+      orgShare: totalS > 0 ? Math.round(enDmOrg/totalS*100) : 100,
+    };
+  })();
 
   return (
-    <div style={{ padding: "20px 24px 40px", display: "grid", gap: 16 }}>
-      {/* Top row: Lift + Revenue Bruto + Revenue Neto */}
-      <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr 1fr", gap: 16 }}>
-        {/* Lift card */}
-        <div style={{ background: T.panel, border: `1px solid ${T.border}`, borderRadius: 8, padding: "20px 24px" }}>
-          <div style={{ fontSize: 12, color: T.muted, marginBottom: 6 }}>Lift Observado DM</div>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 14, marginBottom: 4 }}>
-            <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 52, fontWeight: 500, color: hasLift ? A.pos : A.warn, lineHeight: 1 }}>
-              {dm?.liftPct != null ? formatPct(dm.liftPct) : "—"}
-            </div>
-            <div style={{ fontSize: 12, color: T.muted }}>Streams Reales vs.<br/>Baseline 100% Orgánico</div>
+    <div style={{padding:"20px 24px 40px",display:"grid",gap:16}}>
+      {/* Top row */}
+      <div style={{display:"grid",gridTemplateColumns:"1.6fr 1fr 1fr",gap:16}}>
+        {/* Lift */}
+        <div style={{background:T.panel,border:`1px solid ${T.border}`,borderRadius:8,padding:"20px 24px"}}>
+          <div style={{fontSize:12,color:T.muted,marginBottom:6}}>Lift Observado DM</div>
+          <div style={{fontFamily:"IBM Plex Mono,monospace",fontSize:52,fontWeight:500,lineHeight:1,color:hasLift?A.pos:dm.noBaseline?"#7a8494":A.warn,marginBottom:8}}>
+            {dm.liftPct!=null ? fmtPct(dm.liftPct) : "Sin base"}
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginTop: 22 }}>
-            <div>
-              <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 9.5, color: T.muted, letterSpacing: "0.08em", marginBottom: 3 }}>OBSERVADO</div>
-              <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 14, color: T.fg }}>{dm?.observed != null ? formatInt(dm.observed) : "—"}</div>
-            </div>
-            <div>
-              <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 9.5, color: T.muted, letterSpacing: "0.08em", marginBottom: 3 }}>BASELINE</div>
-              <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 14, color: A.org }}>{dm?.baseline != null ? formatInt(dm.baseline) : "—"}</div>
-            </div>
-            <div>
-              <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 9.5, color: T.muted, letterSpacing: "0.08em", marginBottom: 3 }}>INCREMENTAL</div>
-              <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 14, color: A.pos }}>
-                {dm?.incremental != null ? (dm.incremental > 0 ? "+ " : "") + formatInt(dm.incremental) : "—"}
+          {dm.noBaseline && <div style={{fontSize:11,color:A.warn,marginBottom:12,padding:"6px 10px",background:`${A.warn}11`,borderRadius:5,border:`1px solid ${A.warn}33`}}>Sin baseline pre-DM — comparación no disponible</div>}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:16}}>
+            {[
+              {label:"Observado", value:dm.observed!=null?fmtInt(dm.observed):"—", color:T.fg},
+              {label:"Baseline",  value:dm.baseline!=null?fmtInt(dm.baseline):"—", color:A.org},
+              {label:"Incremental",value:dm.incremental!=null?(dm.incremental>0?"+":"")+fmtInt(dm.incremental):"—",color:hasLift?A.pos:A.warn},
+            ].map(s=>(
+              <div key={s.label}>
+                <div style={{fontFamily:"IBM Plex Mono,monospace",fontSize:9,color:T.muted,letterSpacing:"0.08em",marginBottom:3}}>{s.label.toUpperCase()}</div>
+                <div style={{fontFamily:"IBM Plex Mono,monospace",fontSize:14,color:s.color}}>{s.value}</div>
               </div>
-            </div>
+            ))}
           </div>
-          {dm && (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginTop: 16, padding: "12px 0 0", borderTop: `1px solid ${T.border}` }}>
-              {[
-                { label: "% Algo", value: dm.algoRatio != null ? (dm.algoRatio * 100).toFixed(1) + "%" : "—", color: A.dm },
-                { label: "Algo/día pre-DM", value: dm.preDmAlgoAvg != null ? formatInt(dm.preDmAlgoAvg) : "—", color: T.fg },
-                { label: "Algo/día en DM", value: dm.campAlgoAvg != null ? formatInt(dm.campAlgoAvg) : "—", color: T.fg },
-                { label: "Cambio Algo", value: dm.algoDelta != null ? formatPct(dm.algoDelta) : "—", color: (dm.algoDelta ?? 0) >= 0 ? A.pos : A.warn },
-                { label: "Comisión", value: dm.commission != null ? formatUSD(dm.commission) : "—", color: A.warn },
-                { label: "Rev. Neto", value: dm.net != null ? formatUSD(dm.net) : "—", color: A.pos },
-              ].map(s => (
-                <div key={s.label}>
-                  <div style={{ fontSize: 10, color: T.muted, marginBottom: 3 }}>{s.label}</div>
-                  <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 12.5, color: s.color }}>{s.value}</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,paddingTop:12,borderTop:`1px solid ${T.border}`}}>
+            {[
+              {label:"% Algo",   value:dm.algoRatio!=null?`${(dm.algoRatio*100).toFixed(1)}%`:"—", color:A.dm},
+              {label:"Pre-DM algo/día", value:fmtK(dm.preDmAlgoAvg??0), color:T.fgSoft},
+              {label:"En-DM algo/día",  value:fmtK(dm.campAlgoAvg??0), color:A.dm},
+              {label:"Δ Algo",  value:dm.algoDelta!=null?fmtPct(dm.algoDelta):"—", color:(dm.algoDelta??0)>=0?A.pos:A.warn},
+              {label:"Comisión/día",    value:fmtUSD(dm.dmCommPerDay??0), color:A.warn},
+              {label:"Rev neto/día",    value:fmtUSD(dm.dmRevPerDay??0), color:A.pos},
+            ].map(s=>(
+              <div key={s.label}>
+                <div style={{fontSize:9.5,color:T.muted,marginBottom:3}}>{s.label}</div>
+                <div style={{fontFamily:"IBM Plex Mono,monospace",fontSize:12,color:s.color}}>{s.value}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+        {/* Revenue Bruto */}
+        <div style={{background:T.panel,border:`1px solid ${T.border}`,borderRadius:8,padding:"20px 24px"}}>
+          <div style={{fontSize:12,color:T.muted,marginBottom:10}}>Revenue Bruto Incremental</div>
+          <div style={{fontFamily:"IBM Plex Mono,monospace",fontSize:38,fontWeight:500,color:A.pos,lineHeight:1}}>{fmtUSD(wf.revBruto)}</div>
+          <div style={{fontSize:11.5,color:T.muted,marginTop:10,lineHeight:1.6}}>
+            {dm.observed!=null?`${fmtInt(dm.observed)} streams × $0.00092/stream`:"—"}
+          </div>
+          {dm.dmPeriods && (
+            <div style={{marginTop:14,paddingTop:12,borderTop:`1px solid ${T.border}`}}>
+              <div style={{fontFamily:"IBM Plex Mono,monospace",fontSize:9.5,color:T.muted,letterSpacing:"0.1em",marginBottom:8}}>PERÍODOS</div>
+              {dm.dmPeriods.map(p=>(
+                <div key={p.period} style={{display:"flex",justifyContent:"space-between",marginBottom:4,fontSize:11.5}}>
+                  <span style={{color:T.muted}}>Período {p.period} ({p.days}d)</span>
+                  <span style={{fontFamily:"IBM Plex Mono,monospace",color:p.net!=null?A.pos:T.muted}}>{p.net!=null?fmtUSD(p.net):"—"}</span>
                 </div>
               ))}
             </div>
           )}
         </div>
-
-        {/* Revenue Bruto */}
-        <div style={{ background: T.panel, border: `1px solid ${T.border}`, borderRadius: 8, padding: "20px 24px" }}>
-          <div style={{ fontSize: 12, color: T.muted, marginBottom: 10 }}>Revenue Bruto Incremental</div>
-          <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 38, fontWeight: 500, color: A.pos, lineHeight: 1 }}>
-            {formatUSD(wf.revenueBruto)}
-          </div>
-          <div style={{ fontSize: 12, color: T.muted, marginTop: 8 }}>
-            {dm?.observed != null ? `${formatInt(dm.observed)} streams × $0.00092` : "Sin datos de campaña"}
-          </div>
-        </div>
-
         {/* Revenue Neto */}
-        <div style={{ background: T.panel, border: `1px solid ${T.border}`, borderRadius: 8, padding: "20px 24px" }}>
-          <div style={{ fontSize: 12, color: T.muted, marginBottom: 10 }}>Revenue Neto (post-comisiones)</div>
-          <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 38, fontWeight: 500, color: A.pos, lineHeight: 1 }}>
-            {formatUSD(wf.revenueNeto)}
-          </div>
-          <div style={{ fontSize: 12, color: T.muted, marginTop: 8 }}>Comisión Spotify {formatUSD(wf.comision)}</div>
+        <div style={{background:T.panel,border:`1px solid ${T.border}`,borderRadius:8,padding:"20px 24px"}}>
+          <div style={{fontSize:12,color:T.muted,marginBottom:10}}>Revenue Neto (post-comisión)</div>
+          <div style={{fontFamily:"IBM Plex Mono,monospace",fontSize:38,fontWeight:500,color:A.pos,lineHeight:1}}>{fmtUSD(wf.revNeto)}</div>
+          <div style={{fontSize:11.5,color:T.muted,marginTop:10}}>Comisión Spotify {fmtUSD(wf.comision)}</div>
+          {track.status==="completed" && dm.postDmAvg!=null && (
+            <div style={{marginTop:14,paddingTop:12,borderTop:`1px solid ${T.border}`}}>
+              <div style={{fontFamily:"IBM Plex Mono,monospace",fontSize:9.5,color:T.muted,letterSpacing:"0.1em",marginBottom:8}}>POST-DM</div>
+              <div style={{fontSize:11.5,color:T.fgSoft}}>Balance diario: <span style={{fontFamily:"IBM Plex Mono,monospace",color:(dm.postDmNetBalance??0)>=0?A.pos:A.warn}}>{fmtUSD(dm.postDmNetBalance??0)}/día</span></div>
+              {dm.orgConversion!=null && <div style={{fontSize:11.5,color:T.fgSoft,marginTop:4}}>Conversión org: <span style={{fontFamily:"IBM Plex Mono,monospace",color:A.org}}>{fmtPct(dm.orgConversion)}</span></div>}
+            </div>
+          )}
         </div>
       </div>
 
       {/* Waterfall + Fuente */}
-      <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 16 }}>
-        <div style={{ background: T.panel, border: `1px solid ${T.border}`, borderRadius: 8, padding: "20px 24px" }}>
-          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 18 }}>Waterfall de Revenue</div>
-          <WaterfallBars color={A.pos} negColor={A.warn} items={[
-            { label: "Revenue Bruto Incremental",                value: wf.revenueBruto, max: wf.revenueBruto || 1 },
-            { label: "Inc. Algorítmico",                         value: wf.incAlg,        max: wf.revenueBruto || 1 },
-            { label: "Inc. Orgánico",                            value: wf.incOrg,        max: wf.revenueBruto || 1 },
-            { label: "Comisión (streams algo × 30%)",            value: -wf.comision,     max: wf.revenueBruto || 1, muted: true },
-            { label: "Revenue Neto DM",                          value: wf.revenueNeto,   max: wf.revenueBruto || 1 },
-          ]} />
-          <div style={{ marginTop: 14, padding: "10px 14px", background: `${A.dm}11`, border: `1px solid ${A.dm}33`, borderRadius: 6, fontSize: 11.5, color: T.fgSoft, lineHeight: 1.5 }}>
-            <span style={{ color: A.dm, marginRight: 6 }}>ⓘ</span>
-            Comisión 30% aplica a todos los streams algorítmicos. Canibalización ocurre cuando el algo crece a costa del total orgánico.
+      <div style={{display:"grid",gridTemplateColumns:"1.2fr 1fr",gap:16}}>
+        <div style={{background:T.panel,border:`1px solid ${T.border}`,borderRadius:8,padding:"20px 24px"}}>
+          <div style={{fontSize:14,fontWeight:600,marginBottom:16}}>Waterfall de Revenue</div>
+          {[
+            {label:"Revenue Bruto Incremental",              value:wf.revBruto,  max:wf.revBruto||1},
+            {label:"Inc. Algorítmico",                       value:wf.incAlg,    max:wf.revBruto||1},
+            {label:"Inc. Orgánico",                          value:wf.incOrg,    max:wf.revBruto||1},
+            {label:"Comisión 30% (streams algo)",            value:-wf.comision, max:wf.revBruto||1, neg:true},
+            {label:"Revenue Neto DM",                        value:wf.revNeto,   max:wf.revBruto||1},
+          ].map((item,i)=>{
+            const pct = Math.abs(item.value)/(item.max)*100;
+            const c = item.neg ? A.warn : A.pos;
+            return (
+              <div key={i} style={{display:"grid",gridTemplateColumns:"1fr auto",gap:12,alignItems:"center",padding:"9px 0",borderBottom:`1px solid rgba(255,255,255,0.06)`}}>
+                <div>
+                  <div style={{fontSize:12.5,marginBottom:4,color:T.fgSoft}}>{item.label}</div>
+                  <div style={{height:5,background:"rgba(255,255,255,0.06)",borderRadius:2}}>
+                    <div style={{width:`${pct}%`,height:"100%",background:c,borderRadius:2,opacity:item.neg?0.6:1}} />
+                  </div>
+                </div>
+                <div style={{fontFamily:"IBM Plex Mono,monospace",fontSize:13,color:c,minWidth:90,textAlign:"right"}}>
+                  {item.value>=0?"+":"-"}{fmtUSD(Math.abs(item.value))}
+                </div>
+              </div>
+            );
+          })}
+          <div style={{marginTop:14,padding:"10px 12px",background:`${A.dm}11`,border:`1px solid ${A.dm}33`,borderRadius:6,fontSize:11.5,color:T.fgSoft,lineHeight:1.5}}>
+            <span style={{color:A.dm,marginRight:6}}>ⓘ</span>
+            Comisión del 30% sobre todos los streams algorítmicos. Revenue neto = bruto − comisión.
           </div>
         </div>
-        <div style={{ background: T.panel, border: `1px solid ${T.border}`, borderRadius: 8, padding: "20px 24px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 18 }}>
-            <div style={{ fontSize: 14, fontWeight: 600 }}>Fuente de Streams</div>
-            <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 10.5, color: T.muted }}>Durante campaña DM</div>
-          </div>
+        <div style={{background:T.panel,border:`1px solid ${T.border}`,borderRadius:8,padding:"20px 24px"}}>
+          <div style={{fontSize:14,fontWeight:600,marginBottom:16}}>Fuente de Streams</div>
           {[
-            { label: "Algorítmico", pct: wf.algShare, color: A.dm },
-            { label: "Orgánico",    pct: wf.orgShare, color: A.org },
-          ].map(bar => (
-            <div key={bar.label} style={{ marginBottom: 22 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6, fontSize: 13 }}>
-                <span>{bar.label}</span>
-                <span style={{ fontFamily: "IBM Plex Mono, monospace", color: bar.color }}>{bar.pct}%</span>
+            {label:"Algorítmico",value:wf.algShare,color:A.dm},
+            {label:"Orgánico",   value:wf.orgShare,color:A.org},
+          ].map(b=>(
+            <div key={b.label} style={{marginBottom:18}}>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:5,fontSize:13}}>
+                <span>{b.label}</span>
+                <span style={{fontFamily:"IBM Plex Mono,monospace",color:b.color}}>{b.value}%</span>
               </div>
-              <div style={{ height: 10, background: "rgba(255,255,255,0.06)", borderRadius: 3, overflow: "hidden" }}>
-                <div style={{ width: bar.pct + "%", height: "100%", background: bar.color }} />
+              <div style={{height:9,background:"rgba(255,255,255,0.06)",borderRadius:3,overflow:"hidden"}}>
+                <div style={{width:`${b.value}%`,height:"100%",background:b.color}} />
               </div>
             </div>
           ))}
-          <div style={{ padding: "12px 14px", background: T.panel2, borderRadius: 6, fontFamily: "IBM Plex Mono, monospace", fontSize: 11.5 }}>
+          <div style={{padding:"10px 12px",background:T.panel2,borderRadius:6,fontFamily:"IBM Plex Mono,monospace",fontSize:11.5}}>
             {[
-              { label: "Total streams campaña", value: dm?.observed != null ? formatInt(dm.observed) : "—", color: T.fg },
-              { label: "Algorítmicos",          value: dm?.campProgObs != null ? formatInt(dm.campProgObs) : "—", color: A.dm },
-              { label: "Orgánicos",             value: dm?.campOrgObs  != null ? formatInt(dm.campOrgObs)  : "—", color: A.org },
-            ].map(row => (
-              <div key={row.label} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", borderBottom: `1px solid ${T.border}` }}>
-                <span style={{ color: T.muted }}>{row.label}</span>
-                <span style={{ color: row.color, fontWeight: 500 }}>{row.value}</span>
+              {label:"Total campaña",     value:dm.observed!=null?fmtInt(dm.observed):"—", color:T.fg},
+              {label:"Algorítmicos",      value:dm.campProgObs!=null?fmtInt(dm.campProgObs):"—", color:A.dm},
+              {label:"Orgánicos",         value:dm.campOrgObs!=null?fmtInt(dm.campOrgObs):"—", color:A.org},
+            ].map(r=>(
+              <div key={r.label} style={{display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:`1px solid ${T.border}`}}>
+                <span style={{color:T.muted}}>{r.label}</span>
+                <span style={{color:r.color,fontWeight:500}}>{r.value}</span>
               </div>
             ))}
           </div>
+          {/* Pre vs En DM */}
+          {(dm.preDmAlgoAvg || dm.campAlgoAvg) ? (
+            <div style={{marginTop:16}}>
+              <div style={{fontFamily:"IBM Plex Mono,monospace",fontSize:9.5,color:T.muted,letterSpacing:"0.1em",marginBottom:10}}>PRE-DM vs EN DM (promedio/día)</div>
+              {[
+                {label:"Pre-DM",  algo:dm.preDmAlgoAvg??0, org:dm.preDmOrgAvg??0, hi:false},
+                {label:"En DM",   algo:dm.campAlgoAvg??0,  org:dm.dmOrgAvg??0,    hi:true},
+              ].map(b=>{
+                const sum = b.algo+b.org||1;
+                return (
+                  <div key={b.label} style={{padding:b.hi?10:0,background:b.hi?`${A.dm}08`:"transparent",borderRadius:5,border:b.hi?`1px solid ${A.dm}33`:"none",marginBottom:8}}>
+                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:5,fontSize:11}}>
+                      <span style={{color:T.fgSoft}}>{b.label}</span>
+                      <span style={{fontFamily:"IBM Plex Mono,monospace",color:T.muted,fontSize:10}}>{fmtK(b.algo+b.org)}/día</span>
+                    </div>
+                    <div style={{height:14,display:"flex",borderRadius:2,overflow:"hidden"}}>
+                      <div style={{width:`${b.org/sum*100}%`,background:A.org,display:"flex",alignItems:"center",paddingLeft:5,fontSize:9.5,color:"#0b0f14",fontWeight:600}}>{b.org>0?fmtK(b.org):""}</div>
+                      <div style={{width:`${b.algo/sum*100}%`,background:A.dm,display:"flex",alignItems:"center",paddingLeft:5,fontSize:9.5,color:"#0b0f14",fontWeight:600}}>{b.algo>0?fmtK(b.algo):""}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
         </div>
       </div>
-
-      {/* Pre-DM vs En-DM */}
-      {dm && (dm.preDmAlgoAvg || dm.campAlgoAvg) ? (
-        <div style={{ background: T.panel, border: `1px solid ${T.border}`, borderRadius: 8, padding: "20px 24px" }}>
-          <div style={{ marginBottom: 4, fontSize: 14, fontWeight: 600 }}>Impacto Algorítmico — Pre-DM vs En DM</div>
-          <div style={{ fontSize: 11.5, color: T.muted, marginBottom: 20 }}>Comparación de streams algorítmicos entre el período previo y durante Discovery Mode</div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 32 }}>
-            {[
-              { label: "Pre-DM", algo: dm.preDmAlgoAvg ?? 0, org: dm.preDmOrgAvg ?? 0, highlight: false },
-              { label: "En DM",  algo: dm.campAlgoAvg  ?? 0, org: dm.dmOrgAvg   ?? 0, highlight: true  },
-            ].map(block => {
-              const sum = block.algo + block.org || 1;
-              const orgW = (block.org / sum) * 100;
-              const algW = (block.algo / sum) * 100;
-              return (
-                <div key={block.label} style={{ padding: block.highlight ? 16 : 0, background: block.highlight ? `${A.dm}08` : "transparent", borderRadius: 6, border: block.highlight ? `1px solid ${A.dm}33` : "1px solid transparent" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, fontSize: 12.5 }}>
-                    <span style={{ color: T.fgSoft }}>{block.label} (promedio diario)</span>
-                    <span style={{ fontFamily: "IBM Plex Mono, monospace", color: T.muted, fontSize: 11 }}>{formatInt(block.algo + block.org)}/día</span>
-                  </div>
-                  <div style={{ height: 20, display: "flex", borderRadius: 3, overflow: "hidden", marginBottom: 10 }}>
-                    <div style={{ width: orgW + "%", background: A.org, display: "flex", alignItems: "center", paddingLeft: 8, fontFamily: "IBM Plex Mono, monospace", fontSize: 10, color: "#0b0f14", fontWeight: 600 }}>
-                      {orgW > 15 ? fmtK(block.org) : ""}
-                    </div>
-                    <div style={{ width: algW + "%", background: A.dm, display: "flex", alignItems: "center", paddingLeft: 8, fontFamily: "IBM Plex Mono, monospace", fontSize: 10, color: "#0b0f14", fontWeight: 600 }}>
-                      {algW > 15 ? fmtK(block.algo) : ""}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }
 
 // ════════════════════════════════════════════════════════════════
-//  PERFORMANCE VIEW
+//  PERFORMANCE TAB
 // ════════════════════════════════════════════════════════════════
-function PerformanceView({ T, A, monthly = [], tracks = [] }) {
-  const totalStreams = monthly.reduce((a, m) => a + (m.streamsTotal ?? 0), 0);
-  const totalRev     = monthly.reduce((a, m) => a + (m.revenueNeto ?? 0), 0);
-  const totalDMLift  = monthly.length > 0
-    ? monthly.reduce((a, m) => a + (m.liftDM ?? 0), 0) / monthly.length : 0;
+function PerfTab({ tracks, T, A }) {
+  const monthly = React.useMemo(() => {
+    const monthMap = {};
+    tracks.forEach(t => {
+      (t.history||[]).forEach(d => {
+        if (!d.date) return;
+        const k = d.date.slice(0,7);
+        if (!monthMap[k]) monthMap[k] = {streams:0, prog:0, dmTracks:new Set()};
+        monthMap[k].streams += d.streams||0;
+        monthMap[k].prog    += d.programmedStreams||0;
+        if ((d.programmedStreams||0)>0) monthMap[k].dmTracks.add(t.id);
+      });
+    });
+    const MLBL = {"01":"Ene","02":"Feb","03":"Mar","04":"Abr","05":"May","06":"Jun","07":"Jul","08":"Ago","09":"Sep","10":"Oct","11":"Nov","12":"Dic"};
+    return Object.keys(monthMap).sort().slice(-12).map((k,i,arr) => {
+      const d = monthMap[k];
+      const [yr,mo] = k.split("-");
+      const prev = i>0 ? monthMap[arr[i-1]] : null;
+      const mom = prev?.streams > 0 ? (d.streams-prev.streams)/prev.streams*100 : 0;
+      const org = Math.max(0, d.streams - d.prog);
+      return {
+        month:`${MLBL[mo]} ${yr.slice(2)}`,
+        streamsTotal:d.streams, orgStreams:org, dmStreams:d.prog,
+        liftDM: org>0 ? +(d.prog/org*100).toFixed(1) : 0,
+        revenueNeto:+(d.streams*0.00092*0.7).toFixed(2),
+        tracksDM:d.dmTracks.size, mom
+      };
+    });
+  }, [tracks]);
 
-  const lastMonth = monthly[monthly.length - 1];
-  const prevMonth = monthly[monthly.length - 2];
-  const streamsDelta = prevMonth?.streamsTotal > 0
-    ? ((lastMonth?.streamsTotal - prevMonth?.streamsTotal) / prevMonth?.streamsTotal) * 100 : 0;
-  const revDelta = prevMonth?.revenueNeto > 0
-    ? ((lastMonth?.revenueNeto - prevMonth?.revenueNeto) / prevMonth?.revenueNeto) * 100 : 0;
-  const dmTracks = tracks.filter(t => t.displayStatus === "dm_active").length;
+  const last = monthly[monthly.length-1];
+  const rev = monthly.reduce((s,m)=>s+m.revenueNeto,0);
+  const dmT = tracks.filter(t=>t.status==="active").length;
 
   return (
-    <div style={{ padding: "20px 24px 40px", display: "grid", gap: 16 }}>
+    <div style={{padding:"20px 24px 40px",display:"grid",gap:16}}>
       <div>
-        <div style={{ fontSize: 18, fontWeight: 600, marginBottom: 4 }}>Performance Mensual</div>
-        <div style={{ fontSize: 12, color: T.muted }}>Catálogo completo · streams, lift DM, revenue y ROI por mes</div>
+        <div style={{fontSize:18,fontWeight:600,marginBottom:4}}>Performance Mensual</div>
+        <div style={{fontSize:12,color:T.muted}}>Catálogo completo · streams, lift DM, revenue y ROI por mes</div>
       </div>
 
       {/* KPI cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16 }}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:16}}>
         {[
-          { label: "Streams este mes", value: fmtK(lastMonth?.streamsTotal ?? 0), delta: formatPct(streamsDelta), alt: `${dmTracks} tracks DM activos`, color: A.pos },
-          { label: "Lift DM promedio",  value: formatPct(totalDMLift), delta: null, alt: `${monthly.length} meses`, color: A.dm },
-          { label: "Revenue neto DM",   value: formatUSD(totalRev), delta: formatPct(revDelta), alt: `${monthly.length} meses acumulado`, color: (revDelta >= 0 ? A.pos : A.warn) },
-          { label: "ROI campañas",      value: "Sin gasto", delta: null, alt: "orgánico puro, sin inversión", color: T.fg },
-        ].map(k => (
-          <div key={k.label} style={{ background: T.panel, border: `1px solid ${T.border}`, borderRadius: 8, padding: "18px 20px" }}>
-            <div style={{ fontSize: 12, color: T.muted, marginBottom: 10 }}>{k.label}</div>
-            <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-              <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 26, fontWeight: 500, color: k.color }}>{k.value}</div>
-              {k.delta && <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 12, color: k.delta.startsWith("+") ? A.pos : A.warn }}>{k.delta}</div>}
+          {label:"Streams este mes",  value:fmtK(last?.streamsTotal??0), delta:fmtPct(last?.mom??0), color:A.pos},
+          {label:"Lift DM promedio",  value:fmtPct(monthly.reduce((s,m)=>s+m.liftDM,0)/(monthly.length||1)), color:A.dm},
+          {label:"Revenue neto total",value:fmtUSD(rev), color:rev>0?A.pos:A.warn},
+          {label:"Tracks DM activos", value:String(dmT), alt:"campañas activas", color:A.dm},
+        ].map(k=>(
+          <div key={k.label} style={{background:T.panel,border:`1px solid ${T.border}`,borderRadius:8,padding:"18px 20px"}}>
+            <div style={{fontSize:12,color:T.muted,marginBottom:10}}>{k.label}</div>
+            <div style={{display:"flex",alignItems:"baseline",gap:10}}>
+              <div style={{fontFamily:"IBM Plex Mono,monospace",fontSize:26,fontWeight:500,color:k.color}}>{k.value}</div>
+              {k.delta && <div style={{fontFamily:"IBM Plex Mono,monospace",fontSize:12,color:k.delta.startsWith("+")?A.pos:A.warn}}>{k.delta}</div>}
             </div>
-            {k.alt && <div style={{ fontSize: 11, color: T.muted, marginTop: 6 }}>{k.alt}</div>}
+            {k.alt && <div style={{fontSize:11,color:T.muted,marginTop:6}}>{k.alt}</div>}
           </div>
         ))}
       </div>
 
       {/* Chart */}
-      <div style={{ background: T.panel, border: `1px solid ${T.border}`, borderRadius: 8, padding: "20px 24px" }}>
-        <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 18, color: T.fgSoft }}>Streams totales — Orgánico vs. Lift DM</div>
-        <div style={{ color: T.fgSoft }}>
-          <MonthlyBars data={monthly} orgColor={A.org} dmColor={A.dm} revColor={A.rev} height={220} />
-        </div>
-        <div style={{ display: "flex", gap: 24, justifyContent: "center", marginTop: 12, fontFamily: "IBM Plex Mono, monospace", fontSize: 11, color: T.muted }}>
-          <LegendItem color={A.org} label="Streams Orgánicos" />
-          <LegendItem color={A.dm}  label="Lift DM" />
-          <LegendItem color={A.rev} label="Revenue Neto" />
+      <div style={{background:T.panel,border:`1px solid ${T.border}`,borderRadius:8,padding:"20px 24px"}}>
+        <div style={{fontSize:13,fontWeight:500,marginBottom:16,color:T.fgSoft}}>Streams totales — Orgánico vs. Lift DM</div>
+        <ResponsiveContainer width="100%" height={220}>
+          <ComposedChart data={monthly} margin={{top:8,right:50,bottom:20,left:12}}>
+            <CartesianGrid strokeDasharray="3 3" stroke={T.border} opacity={0.5} />
+            <XAxis dataKey="month" tick={{fontSize:9,fontFamily:"IBM Plex Mono,monospace",fill:T.muted}} />
+            <YAxis yAxisId="streams" tick={{fontSize:9,fontFamily:"IBM Plex Mono,monospace",fill:T.muted}} tickFormatter={v=>fmtK(v)} />
+            <YAxis yAxisId="rev" orientation="right" tick={{fontSize:9,fontFamily:"IBM Plex Mono,monospace",fill:A.rev}} tickFormatter={v=>`$${v}`} />
+            <Tooltip contentStyle={{background:T.panel,border:`1px solid ${T.border}`,borderRadius:8,fontSize:12}} />
+            <Bar yAxisId="streams" dataKey="orgStreams" name="Orgánico" stackId="a" fill={A.org} opacity={0.75} />
+            <Bar yAxisId="streams" dataKey="dmStreams"  name="Lift DM"  stackId="a" fill={A.dm}  opacity={0.85} />
+            <Line yAxisId="rev" dataKey="revenueNeto" name="Revenue Neto" type="monotone" stroke={A.rev} strokeWidth={2} dot={{r:3,fill:A.rev}} />
+          </ComposedChart>
+        </ResponsiveContainer>
+        <div style={{display:"flex",gap:20,justifyContent:"center",marginTop:8,fontFamily:"IBM Plex Mono,monospace",fontSize:11,color:T.muted,flexWrap:"wrap"}}>
+          {[[A.org,"Orgánico"],[A.dm,"Lift DM"],[A.rev,"Revenue Neto"]].map(([c,l])=>(
+            <div key={l} style={{display:"flex",alignItems:"center",gap:5}}>
+              <span style={{width:10,height:10,borderRadius:2,background:c}} />{l}
+            </div>
+          ))}
         </div>
       </div>
 
       {/* Table */}
-      <div style={{ background: T.panel, border: `1px solid ${T.border}`, borderRadius: 8, overflow: "hidden" }}>
-        <div style={{ padding: "18px 24px 12px" }}>
-          <div style={{ fontSize: 14, fontWeight: 600 }}>Detalle por mes</div>
-          <div style={{ fontSize: 11.5, color: T.muted, marginTop: 2 }}>Click para ver breakdown por track</div>
+      <div style={{background:T.panel,border:`1px solid ${T.border}`,borderRadius:8,overflow:"hidden"}}>
+        <div style={{padding:"16px 24px 10px"}}>
+          <div style={{fontSize:14,fontWeight:600}}>Detalle por mes</div>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1.3fr 0.9fr 0.8fr 0.9fr 1.1fr 0.9fr 0.8fr", padding: "10px 24px", borderTop: `1px solid ${T.border}`, borderBottom: `1px solid ${T.border}`, fontSize: 10.5, color: T.muted, fontFamily: "IBM Plex Mono, monospace", letterSpacing: "0.08em" }}>
-          <div>MES</div><div>STREAMS</div><div>MoM</div><div>TRACKS DM</div><div>LIFT DM</div><div>REVENUE NETO</div><div>EFICIENCIA</div><div>ROI</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1.3fr 0.8fr 0.8fr 0.9fr 1.1fr",padding:"8px 24px",borderTop:`1px solid ${T.border}`,borderBottom:`1px solid ${T.border}`,fontSize:10,color:T.muted,fontFamily:"IBM Plex Mono,monospace",letterSpacing:"0.08em"}}>
+          <div>MES</div><div>STREAMS</div><div>MoM</div><div>TRACKS DM</div><div>LIFT DM</div><div>REVENUE NETO</div>
         </div>
-        {monthly.map((m, i) => {
-          const mom = i > 0 ? ((m.streamsTotal - monthly[i-1].streamsTotal) / Math.max(monthly[i-1].streamsTotal, 1)) * 100 : 0;
-          return (
-            <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 1.3fr 0.9fr 0.8fr 0.9fr 1.1fr 0.9fr 0.8fr", padding: "12px 24px", borderBottom: `1px solid ${T.border}`, fontSize: 12.5, alignItems: "center" }}>
-              <div style={{ color: T.fg }}>{m.month}</div>
-              <div style={{ fontFamily: "IBM Plex Mono, monospace" }}>{fmtK(m.streamsTotal)}</div>
-              <div style={{ fontFamily: "IBM Plex Mono, monospace", color: mom >= 0 ? A.pos : A.warn }}>{formatPct(mom)}</div>
-              <div style={{ fontFamily: "IBM Plex Mono, monospace", color: T.fgSoft }}>{m.tracksDM}</div>
-              <div style={{ fontFamily: "IBM Plex Mono, monospace", color: (m.liftDM ?? 0) >= 0 ? A.pos : A.warn }}>{formatPct(m.liftDM ?? 0)}</div>
-              <div style={{ fontFamily: "IBM Plex Mono, monospace" }}>{formatUSD(m.revenueNeto)}</div>
-              <div style={{ fontFamily: "IBM Plex Mono, monospace", color: T.fgSoft }}>{m.efficiency ?? "—"}</div>
-              <div style={{ fontFamily: "IBM Plex Mono, monospace", color: T.muted }}>—</div>
-            </div>
-          );
-        })}
-        {monthly.length === 0 && (
-          <div style={{ padding: "40px 24px", textAlign: "center", color: T.muted, fontSize: 13 }}>
-            Sin datos mensuales disponibles
+        {monthly.map((m,i)=>(
+          <div key={i} style={{display:"grid",gridTemplateColumns:"1fr 1.3fr 0.8fr 0.8fr 0.9fr 1.1fr",padding:"10px 24px",borderBottom:`1px solid ${T.border}`,fontSize:12.5,alignItems:"center"}}>
+            <div style={{color:T.fg}}>{m.month}</div>
+            <div style={{fontFamily:"IBM Plex Mono,monospace"}}>{fmtK(m.streamsTotal)}</div>
+            <div style={{fontFamily:"IBM Plex Mono,monospace",color:m.mom>=0?A.pos:A.warn}}>{fmtPct(m.mom)}</div>
+            <div style={{fontFamily:"IBM Plex Mono,monospace",color:T.fgSoft}}>{m.tracksDM}</div>
+            <div style={{fontFamily:"IBM Plex Mono,monospace",color:(m.liftDM??0)>=0?A.pos:A.warn}}>{fmtPct(m.liftDM??0)}</div>
+            <div style={{fontFamily:"IBM Plex Mono,monospace"}}>{fmtUSD(m.revenueNeto)}</div>
           </div>
-        )}
+        ))}
+        {monthly.length===0 && <div style={{padding:"30px 24px",textAlign:"center",color:T.muted,fontSize:12}}>Sin datos mensuales</div>}
       </div>
     </div>
   );
@@ -2175,27 +1970,24 @@ function PerformanceView({ T, A, monthly = [], tracks = [] }) {
 //  TWEAKS PANEL
 // ════════════════════════════════════════════════════════════════
 function TweaksPanel({ tweaks, setTweaks, T }) {
-  const update = (patch) => setTweaks(prev => {
-    const next = { ...prev, ...patch };
-    try { localStorage.setItem("mdi_tweaks", JSON.stringify(next)); } catch {}
+  const upd = patch => setTweaks(prev => {
+    const next = {...prev,...patch};
+    try { localStorage.setItem("mdi_tweaks",JSON.stringify(next)); } catch {}
     return next;
   });
   return (
-    <div style={{ position: "fixed", bottom: 20, right: 20, width: 260, background: T.panel, border: `1px solid ${T.borderStrong}`, borderRadius: 10, padding: 18, zIndex: 100, boxShadow: "0 24px 60px rgba(0,0,0,0.4)", fontFamily: "Inter, sans-serif", color: T.fg }}>
-      <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 10, letterSpacing: "0.14em", color: T.muted, marginBottom: 14 }}>TWEAKS</div>
+    <div style={{position:"fixed",bottom:20,right:20,width:256,background:T.panel,border:`1px solid ${T.borderStrong}`,borderRadius:10,padding:18,zIndex:100,boxShadow:"0 24px 60px rgba(0,0,0,0.4)",fontFamily:"Inter,sans-serif",color:T.fg}}>
+      <div style={{fontFamily:"IBM Plex Mono,monospace",fontSize:10,letterSpacing:"0.14em",color:T.muted,marginBottom:14}}>TWEAKS</div>
       {[
-        { label: "Theme",   key: "theme",   opts: [["dark","dark"],["light","light"]] },
-        { label: "Palette", key: "palette", opts: [["green-orange","green/orange"],["teal-amber","teal/amber"],["mono-orange","mono/orange"]] },
-        { label: "Density", key: "density", opts: [["dense","dense"],["compact","compact"],["comfortable","comfortable"]] },
-      ].map(row => (
-        <div key={row.key} style={{ marginBottom: 12 }}>
-          <div style={{ fontSize: 10.5, color: T.muted, marginBottom: 6, fontFamily: "IBM Plex Mono, monospace", letterSpacing: "0.08em" }}>{row.label.toUpperCase()}</div>
-          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-            {row.opts.map(([val, lbl]) => {
-              const active = (tweaks[row.key] || row.opts[0][0]) === val;
-              return (
-                <button key={val} onClick={() => update({ [row.key]: val })} style={{ padding: "5px 10px", fontSize: 11, background: active ? T.fg : "transparent", color: active ? T.bg : T.fg, border: `1px solid ${active ? T.fg : T.border}`, borderRadius: 4, textTransform: "capitalize", fontFamily: "Inter, sans-serif", cursor: "pointer" }}>{lbl}</button>
-              );
+        {label:"Theme",   key:"theme",   opts:[["dark","dark"],["light","light"]]},
+        {label:"Palette", key:"palette", opts:[["green-orange","green/orange"],["teal-amber","teal/amber"],["mono-orange","mono/orange"]]},
+      ].map(row=>(
+        <div key={row.key} style={{marginBottom:12}}>
+          <div style={{fontSize:10,color:T.muted,marginBottom:6,fontFamily:"IBM Plex Mono,monospace",letterSpacing:"0.08em"}}>{row.label.toUpperCase()}</div>
+          <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+            {row.opts.map(([val,lbl])=>{
+              const act=(tweaks[row.key]||row.opts[0][0])===val;
+              return <button key={val} onClick={()=>upd({[row.key]:val})} style={{padding:"4px 9px",fontSize:11,background:act?T.fg:"transparent",color:act?T.bg:T.fg,border:`1px solid ${act?T.fg:T.border}`,borderRadius:4,textTransform:"capitalize",cursor:"pointer"}}>{lbl}</button>;
             })}
           </div>
         </div>
@@ -2208,215 +2000,131 @@ function TweaksPanel({ tweaks, setTweaks, T }) {
 //  MAIN COMPONENT
 // ════════════════════════════════════════════════════════════════
 export default function MusicDecayIntelligence() {
-  // ── Inject Google Fonts ──────────────────────────────────────
+  // ── Google Fonts injection ────────────────────────────────────
   React.useEffect(() => {
-    if (document.getElementById("mdi-fonts")) return;
-    const link = document.createElement("link");
-    link.id   = "mdi-fonts";
-    link.rel  = "stylesheet";
-    link.href = "https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600;700&display=swap";
-    document.head.appendChild(link);
-    const style = document.createElement("style");
-    style.textContent = `
-      @keyframes slideUp { from { transform: translateX(-50%) translateY(10px); opacity:0; } to { transform: translateX(-50%) translateY(0); opacity:1; } }
-      * { box-sizing: border-box; margin: 0; padding: 0; }
-      ::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
-      body { font-family: 'Inter', system-ui, sans-serif; }
-    `;
-    document.head.appendChild(style);
+    if (document.getElementById("mdi-gfonts")) return;
+    const l = document.createElement("link"); l.id="mdi-gfonts"; l.rel="stylesheet";
+    l.href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600;700&display=swap";
+    document.head.appendChild(l);
+    const s = document.createElement("style");
+    s.textContent=`@keyframes slideUp{from{transform:translateX(-50%) translateY(10px);opacity:0}to{transform:translateX(-50%) translateY(0);opacity:1}}*{box-sizing:border-box}::-webkit-scrollbar{width:6px}::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.1);border-radius:3px}`;
+    document.head.appendChild(s);
   }, []);
 
-  // ── Tweaks (theme / palette / density) ──────────────────────
-  const [tweaks, setTweaks] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("mdi_tweaks") ?? "{}"); } catch { return {}; }
-  });
+  // ── Tweaks ────────────────────────────────────────────────────
+  const [tweaks, setTweaks] = useState(() => { try{return JSON.parse(localStorage.getItem("mdi_tweaks")||"{}");}catch{return {};} });
   const [showTweaks, setShowTweaks] = useState(false);
-
   const T = getTheme(tweaks);
   const A = getAccents(tweaks);
 
-  // ── DM overrides (persisted) ─────────────────────────────────
-  const [dmOverrides, setDmOverrides] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("mdi_dm_overrides") ?? "{}"); } catch { return {}; }
-  });
+  // ── DM Overrides ──────────────────────────────────────────────
+  const [dmOverrides, setDmOverrides] = useState(() => { try{return JSON.parse(localStorage.getItem("mdi_dm_overrides")||"{}");}catch{return {};} });
   const [cmLiveData] = useState({});
+  const handleUpdateDM = (id, updates) => setDmOverrides(p => { const n={...p,[id]:{...(p[id]??{}),...updates}}; localStorage.setItem("mdi_dm_overrides",JSON.stringify(n)); return n; });
+  const handleRemoveDM = (id) => setDmOverrides(p => { const n={...p}; delete n[id]; localStorage.setItem("mdi_dm_overrides",JSON.stringify(n)); return n; });
 
-  // ── Catalog ──────────────────────────────────────────────────
+  // ── Artist + Catalog ──────────────────────────────────────────
+  const [artist, setArtist] = useState("Downtown");
   const rawCatalog = useMemo(() => {
     const base = buildCatalog(cmLiveData);
-    return base.map(t => {
-      const ov = dmOverrides[t.id];
-      return ov ? { ...t, ...ov } : t;
-    });
+    return base.map(t => { const ov=dmOverrides[t.id]; return ov?{...t,...ov}:t; });
   }, [cmLiveData, dmOverrides]);
+  const artistCatalog = useMemo(() => rawCatalog.filter(t=>t.artist===artist), [rawCatalog, artist]);
 
-  // Filter to primary artist ("Downtown" = NTVG in S4A)
-  const PRIMARY_ARTIST = "Downtown";
-  const artistCatalog = useMemo(
-    () => rawCatalog.filter(t => t.artist === PRIMARY_ARTIST),
-    [rawCatalog]
-  );
-
-  // Adapt to display format
-  const tracks = useMemo(() => artistCatalog.map(adaptTrack), [artistCatalog]);
-
-  // Monthly data
-  const monthly = useMemo(() => buildMonthlyData(artistCatalog), [artistCatalog]);
-
-  // Catalog summary for sidebar
-  const catalogSummary = {
-    artist: "No Te Va Gustar",
-    totalTracks: tracks.length,
-  };
-
-  // ── UI state ─────────────────────────────────────────────────
+  // ── Selection ─────────────────────────────────────────────────
   const [selectedId, setSelectedId] = useState(() => {
-    // Auto-select first track with metrics
-    const first = artistCatalog.find(t => t.metrics != null && t.name);
+    const first = rawCatalog.find(t=>t.artist==="Downtown"&&t.metrics!=null&&t.name);
     return first?.id ?? null;
   });
-  const [view,            setView]            = useState("dashboard");
+  const handleArtist = a => { setArtist(a); const first=rawCatalog.find(t=>t.artist===a&&t.metrics!=null); setSelectedId(first?.id??null); };
+  const track = useMemo(() => artistCatalog.find(t=>t.id===selectedId)??null, [artistCatalog, selectedId]);
+
+  // ── UI state ──────────────────────────────────────────────────
+  const [tab,             setTab]             = useState("decay");
   const [query,           setQuery]           = useState("");
   const [filter,          setFilter]          = useState("all");
   const [sortBy,          setSortBy]          = useState("streams");
   const [cmdOpen,         setCmdOpen]         = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [toast,           setToast]           = useState(null);
-  const toastTimer = useRef(null);
+  const [collapsed,       setCollapsed]       = useState(false);
+  const [toastMsg,        setToastMsg]        = useState(null);
+  const toastRef = useRef(null);
 
-  // Auto-select first if nothing selected
+  const showToast = msg => { setToastMsg(msg); clearTimeout(toastRef.current); toastRef.current=setTimeout(()=>setToastMsg(null),2600); };
+
+  // ── Keyboard shortcuts ────────────────────────────────────────
   useEffect(() => {
-    if (!selectedId && tracks.length > 0) setSelectedId(tracks[0].id);
-  }, [tracks]);
-
-  const track = useMemo(() => tracks.find(t => t.id === selectedId) ?? null, [tracks, selectedId]);
-
-  // ── Toast helper ─────────────────────────────────────────────
-  const showToast = (msg) => {
-    setToast(msg);
-    clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToast(null), 2600);
-  };
-
-  // ── Keyboard shortcuts ───────────────────────────────────────
-  useEffect(() => {
-    const onKey = (e) => {
-      if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
-      const ids = tracks.map(t => t.id);
+    const onKey = e => {
+      if (e.target.tagName==="INPUT"||e.target.tagName==="TEXTAREA") return;
+      const ids = artistCatalog.map(t=>t.id);
       const cur = ids.indexOf(selectedId);
-      if (e.key === "ArrowUp" || e.key === "k") {
-        e.preventDefault();
-        if (cur > 0) setSelectedId(ids[cur - 1]);
-      } else if (e.key === "ArrowDown" || e.key === "j") {
-        e.preventDefault();
-        if (cur < ids.length - 1) setSelectedId(ids[cur + 1]);
-      } else if (e.key === "1") { setView("dashboard"); }
-      else if (e.key === "2") { setView("dm-audit"); }
-      else if (e.key === "3") { setView("performance"); }
-      else if ((e.metaKey || e.ctrlKey) && e.key === "k") {
-        e.preventDefault(); setCmdOpen(o => !o);
-      } else if (e.key === "[") { setSidebarCollapsed(c => !c); }
-      else if (e.key === "Escape") { setCmdOpen(false); setShowTweaks(false); }
+      if (e.key==="ArrowUp"||e.key==="k") { e.preventDefault(); if(cur>0) setSelectedId(ids[cur-1]); }
+      else if (e.key==="ArrowDown"||e.key==="j") { e.preventDefault(); if(cur<ids.length-1) setSelectedId(ids[cur+1]); }
+      else if (e.key==="1") setTab("decay");
+      else if (e.key==="2") setTab("audit");
+      else if (e.key==="3") setTab("perf");
+      else if ((e.metaKey||e.ctrlKey)&&e.key==="k") { e.preventDefault(); setCmdOpen(o=>!o); }
+      else if (e.key==="[") setCollapsed(c=>!c);
+      else if (e.key==="Escape") { setCmdOpen(false); setShowTweaks(false); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [tracks, selectedId]);
+  }, [artistCatalog, selectedId]);
 
-  // ── Action handler ───────────────────────────────────────────
-  const handleAction = (action) => {
-    if (action === "Abrir en Spotify" && track?.spotifyId) {
-      window.open(`https://open.spotify.com/track/${track.spotifyId}`, "_blank");
-    }
+  const handleAction = action => {
+    if (action==="Abrir en Spotify"&&track?.id) window.open(`https://open.spotify.com/track/${track.id}`,"_blank");
     showToast(action);
   };
 
   return (
-    <div style={{ display: "flex", height: "100vh", background: T.bg, color: T.fg, overflow: "hidden", fontFamily: "Inter, sans-serif" }}>
-      {/* Sidebar */}
+    <div style={{display:"flex",height:"100vh",background:T.bg,color:T.fg,overflow:"hidden",fontFamily:"Inter,sans-serif"}}>
       <Sidebar
-        tracks={tracks}
-        selectedId={selectedId}
-        onSelect={setSelectedId}
-        query={query}
-        onQuery={setQuery}
-        filter={filter}
-        onFilter={setFilter}
-        sortBy={sortBy}
-        onSort={setSortBy}
-        collapsed={sidebarCollapsed}
-        T={T} A={A}
-        catalog={catalogSummary}
+        catalog={artistCatalog} selectedId={selectedId} onSelect={setSelectedId}
+        artist={artist} onArtist={handleArtist}
+        query={query} onQuery={setQuery}
+        filter={filter} onFilter={setFilter}
+        sortBy={sortBy} onSort={setSortBy}
+        collapsed={collapsed} T={T} A={A}
       />
 
-      {/* Main area */}
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-        {/* TopBar */}
-        {view !== "performance" ? (
-          <TopBar
-            track={track}
-            tracks={tracks}
-            selectedId={selectedId}
-            onSelect={setSelectedId}
-            view={view}
-            onView={setView}
-            cmdOpen={cmdOpen}
-            onCmd={() => setCmdOpen(o => !o)}
-            onAction={handleAction}
-            T={T} A={A}
-          />
-        ) : (
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 16px", height: 48, borderBottom: `1px solid ${T.border}`, background: T.panel, flexShrink: 0 }}>
-            <div style={{ display: "flex", gap: 2 }}>
-              {[{ id:"dashboard", label:"◐ Decay", kbd:"1" }, { id:"dm-audit", label:"⊙ DM Audit", kbd:"2" }, { id:"performance", label:"↗ Performance", kbd:"3" }].map(v => (
-                <button key={v.id} onClick={() => setView(v.id)} style={{ display:"flex", alignItems:"center", gap:6, padding:"6px 14px", fontSize:12.5, borderRadius:6, background: view===v.id ? "rgba(255,255,255,0.08)" : "transparent", color: view===v.id ? T.fg : T.muted, border: view===v.id ? `1px solid ${T.border}` : "1px solid transparent", cursor:"pointer" }}>
-                  {v.label}
-                </button>
-              ))}
-            </div>
-            <button onClick={() => setCmdOpen(o => !o)} style={{ padding:"5px 10px", fontSize:12, background:"transparent", border:`1px solid ${T.border}`, borderRadius:6, color:T.muted, cursor:"pointer" }}>⌘K</button>
-          </div>
-        )}
+      <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+        <TopBar
+          track={track} tracks={artistCatalog} selectedId={selectedId}
+          onSelect={setSelectedId} tab={tab} onTab={setTab}
+          onCmd={()=>setCmdOpen(o=>!o)}
+          onAction={handleAction} T={T} A={A}
+        />
 
-        {/* View content */}
-        <div style={{ flex: 1, overflowY: "auto", background: T.bg }}>
-          <ErrorBoundary key={view + selectedId}>
-            {view === "performance" ? (
-              <PerformanceView T={T} A={A} monthly={monthly} tracks={tracks} />
+        <div style={{flex:1,overflowY:"auto",background:T.bg}}>
+          <ErrorBoundary key={tab+selectedId}>
+            {tab==="perf" ? (
+              <PerfTab tracks={artistCatalog} T={T} A={A} />
             ) : !track ? (
-              <div style={{ display:"flex", alignItems:"center", justifyContent:"center", height:"100%", color:T.muted }}>
-                <div style={{ textAlign:"center" }}>
-                  <div style={{ fontSize:40, marginBottom:16 }}>◐</div>
-                  <div style={{ fontSize:14, fontWeight:500, color:T.fgSoft }}>Seleccioná un track para comenzar</div>
-                  <div style={{ fontSize:12, color:T.muted, marginTop:6 }}>Usá el panel izquierdo para navegar el catálogo</div>
-                </div>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100%",color:T.muted,flexDirection:"column",gap:8}}>
+                <span style={{fontSize:40}}>◐</span>
+                <span style={{fontSize:14,fontWeight:500,color:T.fgSoft}}>Seleccioná un track</span>
+                <span style={{fontSize:12,color:T.muted}}>Usá el panel izquierdo para navegar el catálogo</span>
               </div>
-            ) : view === "dm-audit" ? (
-              <AuditView T={T} A={A} track={track} />
+            ) : tab==="audit" ? (
+              <AuditTab track={track} T={T} A={A} />
             ) : (
-              <DashboardView T={T} A={A} track={track} />
+              <DecayTab track={track} catalog={artistCatalog} T={T} A={A} />
             )}
           </ErrorBoundary>
         </div>
       </div>
 
-      {/* Command Palette */}
       <CommandPalette
-        tracks={tracks} open={cmdOpen}
-        onClose={() => setCmdOpen(false)}
-        onSelect={(id) => setSelectedId(id)}
-        onView={setView}
-        T={T} A={A}
+        tracks={artistCatalog} open={cmdOpen}
+        onClose={()=>setCmdOpen(false)}
+        onSelect={id=>{setSelectedId(id);setTab("decay");}}
+        onTab={setTab} T={T} A={A}
       />
 
-      {/* Toast */}
-      <Toast message={toast} T={T} A={A} />
+      <Toast msg={toastMsg} T={T} A={A} />
 
-      {/* Tweaks toggle button */}
-      <button onClick={() => setShowTweaks(o => !o)}
-        style={{ position:"fixed", bottom:20, right:showTweaks?292:20, width:36, height:36, borderRadius:"50%", background:T.panel, border:`1px solid ${T.border}`, color:T.muted, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, boxShadow:"0 4px 12px rgba(0,0,0,0.3)", zIndex:101 }}
-        title="Tweaks">
-        ⚙
-      </button>
+      <button onClick={()=>setShowTweaks(o=>!o)}
+        style={{position:"fixed",bottom:20,right:showTweaks?278:20,width:34,height:34,borderRadius:"50%",background:T.panel,border:`1px solid ${T.border}`,color:T.muted,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,boxShadow:"0 4px 12px rgba(0,0,0,0.3)",zIndex:101}}
+        title="Tweaks">⚙</button>
       {showTweaks && <TweaksPanel tweaks={tweaks} setTweaks={setTweaks} T={T} />}
     </div>
   );
